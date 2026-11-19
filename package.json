@@ -1,0 +1,62 @@
+{
+  "name": "@flurryhr/backend",
+  "private": true,
+  "scripts": {
+    "dev": "npm run build && concurrently \"tsc --watch --preserveWatchOutput\" \"node --watch --watch-path=dist --watch-path=.env dist/src/main.js\"",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/*.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "node --import tsx prisma/seed.ts",
+    "start": "node dist/src/main.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "setup": "node scripts/local-db.mjs setup",
+    "db:start": "node scripts/local-db.mjs start",
+    "db:stop": "node scripts/local-db.mjs stop",
+    "test:integration": "node scripts/integration.mjs",
+    "test:browser": "node scripts/browser.mjs",
+    "test:homepage": "node scripts/homepage.mjs",
+    "platform:provision": "node scripts/provision-platform.mjs",
+    "test:saas": "node scripts/saas-integration.mjs",
+    "test:saas:browser": "node scripts/saas-browser.mjs",
+    "test:migration": "node scripts/migration-test.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "^6.4.0",
+    "@prisma/client": "^6.19.0",
+    "bcryptjs": "^3.0.2",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.5.0",
+    "helmet": "^8.1.0",
+    "luxon": "^3.6.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.1",
+    "@types/luxon": "^3.6.2",
+    "@types/node": "^22.15.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "prisma": "^6.19.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.73.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
+}

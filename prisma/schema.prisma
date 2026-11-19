@@ -1,0 +1,475 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  COMPANY_ADMIN
+  HR_ADMIN
+  MANAGER
+  FINANCE
+  EMPLOYEE
+}
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  passwordHash String
+  role Role @default(EMPLOYEE)
+  active Boolean @default(true)
+  employees Employee[]
+  memberships Membership[]
+  tokens AccountToken[]
+  emailVerifiedAt DateTime?
+  platformAdmin Boolean @default(false)
+  sessions Session[]
+  createdAt DateTime @default(now())
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  membershipId String?
+  @@index([userId])
+}
+model Department {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  name String
+  employees Employee[]
+  @@unique([organizationId, name])
+}
+model Schedule {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  name String
+  timezone String @default("Africa/Lagos")
+  workingDays Int[] @default([1,2,3,4,5])
+  startMinute Int @default(540)
+  endMinute Int @default(1020)
+  graceMinutes Int @default(15)
+  breakMinutes Int @default(60)
+  employees Employee[]
+  @@unique([organizationId, name])
+}
+model Holiday {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  date String
+  name String
+  @@unique([organizationId, date])
+}
+model Employee {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  number Int @unique @default(autoincrement())
+  firstName String
+  lastName String
+  email String
+  phone String?
+  jobTitle String
+  employmentType String @default("Full-time")
+  workArrangement String @default("Hybrid")
+  status String @default("Active")
+  joinedAt DateTime @db.Date
+  departmentId String
+  department Department @relation(fields: [departmentId], references: [id])
+  managerId String?
+  manager Employee? @relation("Management", fields: [managerId], references: [id])
+  reports Employee[] @relation("Management")
+  userId String?
+  user User? @relation(fields: [userId], references: [id])
+  scheduleId String
+  schedule Schedule @relation(fields: [scheduleId], references: [id])
+  attendance Attendance[]
+  leave LeaveRequest[]
+  allocations LeaveAllocation[]
+  onboarding OnboardingItem[]
+  tasks Task[]
+  payroll Payroll[]
+  createdAt DateTime @default(now())
+  @@index([departmentId, status])
+  @@index([managerId])
+  membership Membership?
+  @@unique([organizationId, email])
+  @@unique([organizationId, userId])
+}
+model Attendance {
+  requestKey String? @unique
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  clockIn DateTime @default(now())
+  clockOut DateTime?
+  status String @default("Present")
+  corrections Correction[]
+  @@index([employeeId, clockIn])
+}
+model Correction {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  attendanceId String
+  attendance Attendance @relation(fields: [attendanceId], references: [id])
+  requestedIn DateTime
+  requestedOut DateTime
+  originalIn DateTime
+  originalOut DateTime?
+  reason String
+  status String @default("Pending")
+  reviewedBy String?
+  comment String?
+  createdAt DateTime @default(now())
+}
+model LeaveType {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  name String
+  allocations LeaveAllocation[]
+  requests LeaveRequest[]
+  @@unique([organizationId, name])
+}
+model LeaveAllocation {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  year Int
+  days Int
+  @@unique([employeeId, leaveTypeId, year])
+}
+model LeaveRequest {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  startDate String
+  endDate String
+  days Int
+  reason String
+  status String @default("Pending")
+  reviewedBy String?
+  comment String?
+  createdAt DateTime @default(now())
+  @@index([employeeId, startDate, endDate])
+}
+model Job {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  title String
+  department String
+  description String
+  workArrangement String @default("Hybrid")
+  status String @default("Open")
+  candidates Candidate[]
+  createdAt DateTime @default(now())
+}
+model Candidate {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  name String
+  email String
+  jobId String
+  job Job @relation(fields: [jobId], references: [id])
+  stage String @default("Applied")
+  offerAccepted Boolean @default(false)
+  employeeId String? @unique
+  createdAt DateTime @default(now())
+  @@unique([email, jobId])
+}
+model OnboardingItem {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  title String
+  completed Boolean @default(false)
+}
+model Task {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  title String
+  description String @default("")
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  priority String @default("Medium")
+  status String @default("To Do")
+  dueDate DateTime @db.Date
+  createdAt DateTime @default(now())
+}
+model Payroll {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id])
+  period String
+  baseMinor BigInt
+  allowancesMinor BigInt @default(0)
+  deductionsMinor BigInt @default(0)
+  netMinor BigInt
+  currency String @default("NGN")
+  status String @default("Draft")
+  createdBy String
+  approvedBy String?
+  createdAt DateTime @default(now())
+  @@unique([employeeId, period])
+}
+model Announcement {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  title String
+  body String
+  createdAt DateTime @default(now())
+}
+model Audit {
+  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+  organization Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+  @@unique([id, organizationId])
+  id String @id @default(uuid())
+  actorId String
+  action String
+  entityId String
+  details Json?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+
+model Organization {
+ id String @id @default(uuid())
+ name String
+ slug String @unique
+ businessEmail String
+ phone String?
+ country String @default("NG")
+ timezone String @default("Africa/Lagos")
+ address String @default("")
+ logo String?
+ status String @default("Pending")
+ onboardingStep Int @default(0)
+ onboardingCompleted Boolean @default(false)
+ emailNotifications Boolean @default(true)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ memberships Membership[]
+ invitations Invitation[]
+ departments Department[]
+ schedules Schedule[]
+ holidays Holiday[]
+ employees Employee[]
+ attendance Attendance[]
+ corrections Correction[]
+ leaveTypes LeaveType[]
+ allocations LeaveAllocation[]
+ leaves LeaveRequest[]
+ jobs Job[]
+ candidates Candidate[]
+ onboarding OnboardingItem[]
+ tasks Task[]
+ payroll Payroll[]
+ announcements Announcement[]
+ audit Audit[]
+ notifications Notification[]
+ taskEvents TaskEvent[]
+ documents Document[]
+ assets Asset[]
+ assetHistory AssetHistory[]
+ reviews PerformanceReview[]
+ @@index([status, createdAt])
+}
+model Membership {
+ id String @id @default(uuid())
+ userId String
+ user User @relation(fields:[userId],references:[id])
+ organizationId String
+ organization Organization @relation(fields:[organizationId],references:[id])
+ employeeId String? @unique
+ employee Employee? @relation(fields:[employeeId],references:[id])
+ role Role @default(EMPLOYEE)
+ active Boolean @default(true)
+ emailNotifications Boolean @default(true)
+ createdAt DateTime @default(now())
+ @@unique([userId,organizationId])
+ @@index([organizationId,active])
+}
+model AccountToken {
+ id String @id @default(uuid())
+ userId String
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ hash String @unique
+ kind String
+ expiresAt DateTime
+ consumedAt DateTime?
+ createdAt DateTime @default(now())
+ @@index([userId,kind])
+}
+model Invitation {
+ id String @id @default(uuid())
+ organizationId String
+ organization Organization @relation(fields:[organizationId],references:[id])
+ email String
+ role Role @default(EMPLOYEE)
+ employeeId String
+ tokenHash String @unique
+ expiresAt DateTime
+ status String @default("Pending")
+ invitedBy String
+ acceptedAt DateTime?
+ createdAt DateTime @default(now())
+ @@index([organizationId,status])
+}
+model MailJob {
+ id String @id @default(uuid())
+ referenceId String?
+ organizationId String?
+ userId String?
+ to String
+ subject String
+ body String
+ status String @default("Queued")
+ attempts Int @default(0)
+ availableAt DateTime @default(now())
+ lockedAt DateTime?
+ acceptedAt DateTime?
+ lastError String?
+ createdAt DateTime @default(now())
+ @@index([status,availableAt])
+}
+model PlatformAudit {
+ id String @id @default(uuid())
+ actorId String
+ action String
+ organizationId String?
+ reason String?
+ createdAt DateTime @default(now())
+ @@index([createdAt])
+}
+model Notification {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ userId String
+ title String
+ body String
+ link String @default("/workspace")
+ readAt DateTime?
+ createdAt DateTime @default(now())
+ @@index([organizationId,userId,createdAt])
+}
+model TaskEvent {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ taskId String
+ actorId String
+ status String
+ note String
+ createdAt DateTime @default(now())
+ @@index([organizationId,taskId,createdAt])
+}
+model Document {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ employeeId String?
+ name String
+ category String
+ storageKey String @unique
+ mime String
+ bytes Int
+ uploadedBy String
+ createdAt DateTime @default(now())
+ @@index([organizationId,employeeId])
+}
+model Asset {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ identifier String
+ name String
+ serialNumber String?
+ condition String @default("Good")
+ status String @default("Available")
+ employeeId String?
+ createdAt DateTime @default(now())
+ @@unique([organizationId,identifier])
+ @@index([organizationId,employeeId])
+}
+model AssetHistory {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ assetId String
+ employeeId String?
+ action String
+ reason String
+ actorId String
+ createdAt DateTime @default(now())
+ @@index([organizationId,assetId])
+}
+model PerformanceReview {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ employeeId String
+ period String
+ goal String
+ selfAssessment String @default("")
+ managerAssessment String @default("")
+ status String @default("Draft")
+ createdAt DateTime @default(now())
+ @@index([organizationId,employeeId])
+}
