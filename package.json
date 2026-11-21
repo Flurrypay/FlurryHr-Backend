@@ -34,7 +34,8 @@
     "test:backup-restore": "node scripts/backup-restore-test.mjs",
     "test:mail-queue": "node scripts/mail-queue-test.mjs",
     "check:requirements": "node scripts/checklist-inventory.mjs",
-    "test:list-plans": "node scripts/list-query-plans.mjs"
+    "test:list-plans": "node scripts/list-query-plans.mjs",
+    "mail:diagnose-reset": "node scripts/diagnose-password-reset.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
