@@ -28,7 +28,8 @@
     "db:backup": "node scripts/backup-local.mjs",
     "test:backup-restore": "node scripts/backup-restore-test.mjs",
     "test:mail-queue": "node scripts/mail-queue-test.mjs",
-    "check:requirements": "node scripts/checklist-inventory.mjs"
+    "check:requirements": "node scripts/checklist-inventory.mjs",
+    "test:list-plans": "node scripts/list-query-plans.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

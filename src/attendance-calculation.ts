@@ -100,7 +100,7 @@ export class AttendanceCalculation {
           AND (e.status='Active' OR a.sessions>0) ${scope}
           ${query.department ? Prisma.sql`AND e."departmentId"=${query.department}` : Prisma.empty}
           ${query.employee ? Prisma.sql`AND e.id=${query.employee}` : Prisma.empty}
-          ${query.search ? Prisma.sql`AND concat_ws(' ',e."firstName",e."lastName",e.email) ILIKE ${"%" + query.search.slice(0, 100) + "%"}` : Prisma.empty}
+          ${query.search?.trim() ? Prisma.sql`AND concat_ws(' ',e."firstName",e."lastName",e.email) ILIKE ${"%" + query.search.trim() + "%"}` : Prisma.empty}
       ), classified AS (
         SELECT *, CASE
           WHEN incomplete>0 THEN 'Incomplete Session'

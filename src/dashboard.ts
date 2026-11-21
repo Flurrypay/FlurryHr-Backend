@@ -13,6 +13,8 @@ import { once } from "node:events";
 import { DateTime } from "luxon";
 import { Db } from "./db";
 import { AttendanceCalculation } from "./attendance-calculation";
+import { attendanceStatuses } from "./attendance-calculation";
+import { pagination } from "./pagination";
 import { AuthGuard, AuthRequest, ownEmployee, permit } from "./auth";
 import { ADMIN, PEOPLE, FINANCE } from "./domain";
 import { Prisma } from "@prisma/client";
@@ -148,6 +150,8 @@ export class DashboardController {
     const { from, to } = q;
     if (typeof from !== "string" || typeof to !== "string")
       throw new BadRequestException("Choose a report range of up to 93 days");
+    // Exports own their traversal; validate filters before writing CSV headers.
+    pagination({ ...q, page: "1", limit: "100", after: "" });
     const zone = req.actor.organization!.timezone;
     const start = DateTime.fromISO(from || "", { zone }).startOf("day"),
       end = DateTime.fromISO(to || "", { zone }).endOf("day");
@@ -158,19 +162,7 @@ export class DashboardController {
       end.diff(start, "days").days > 93
     )
       throw new BadRequestException("Choose a report range of up to 93 days");
-    if (
-      q.status &&
-      ![
-        "Incomplete Session",
-        "Late",
-        "Present",
-        "On Leave",
-        "Holiday",
-        "Rest Day",
-        "Absent",
-        "Not started",
-      ].includes(q.status)
-    )
+    if (q.status && !attendanceStatuses.includes(q.status))
       throw new BadRequestException("Unknown attendance status");
     const cell = (value: string) =>
       `"${(/^\s*[=+@-]|^[\t\r]/.test(value) ? "'" : "") + value.replace(/"/g, '""')}"`;
