@@ -117,6 +117,29 @@ export async function inviteExisting(
   });
   return invitation;
 }
+
+async function syncUnacceptedEmployee(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  employeeId: string,
+) {
+  await tx.$queryRaw`SELECT id FROM "Employee" WHERE id=${employeeId} AND "organizationId"=${organizationId} FOR UPDATE`;
+  const latest = await tx.invitation.findFirst({
+    where: { employeeId, organizationId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  if (!latest || !["Revoked", "Deleted"].includes(latest.status)) return;
+  await tx.employee.updateMany({
+    where: {
+      id: employeeId,
+      organizationId,
+      userId: null,
+      status: { in: ["Invited", "Not invited", "Removed"] },
+    },
+    data: { status: latest.status === "Deleted" ? "Removed" : "Not invited" },
+  });
+}
+
 @Controller()
 @UseGuards(AuthGuard)
 export class CompanyController {
@@ -306,6 +329,8 @@ export class CompanyController {
         throw new BadRequestException(
           "This employee already has an account or is inactive",
         );
+      if (existing)
+        await tx.$queryRaw`SELECT id FROM "Employee" WHERE id=${existing.id} AND "organizationId"=${companyId(req.actor)} FOR UPDATE`;
       if (
         existing &&
         (await tx.invitation.findFirst({
@@ -369,6 +394,7 @@ export class CompanyController {
   ) {
     permit(req.actor, ADMIN);
     return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Employee" WHERE id=${id} AND "organizationId"=${companyId(req.actor)} FOR UPDATE`;
       const employee = await tx.employee.findUniqueOrThrow({ where: { id } });
       if (employee.userId || employee.status === "Inactive")
         throw new BadRequestException("This employee cannot be invited");
@@ -441,6 +467,9 @@ export class CompanyController {
   async revoke(@Req() req: AuthRequest, @Param("id") id: string) {
     permit(req.actor, ADMIN);
     return this.db.$transaction(async (tx) => {
+      const invitation = await tx.invitation.findUniqueOrThrow({
+        where: { id },
+      });
       const item = await tx.invitation.updateMany({
         where: { id, status: "Pending" },
         data: { status: "Revoked" },
@@ -459,6 +488,11 @@ export class CompanyController {
           lastError: null,
         },
       });
+      await syncUnacceptedEmployee(
+        tx,
+        companyId(req.actor),
+        invitation.employeeId,
+      );
       await tx.audit.create({
         data: {
           actorId: req.actor.id,
@@ -475,7 +509,10 @@ export class CompanyController {
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Invitation" WHERE id=${id} AND "organizationId"=${companyId(req.actor)} FOR UPDATE`;
       const item = await tx.invitation.findUniqueOrThrow({ where: { id } });
-      if (item.status === "Deleted") return { ok: true };
+      if (item.status === "Deleted") {
+        await syncUnacceptedEmployee(tx, companyId(req.actor), item.employeeId);
+        return { ok: true };
+      }
       if (item.status !== "Revoked")
         throw new BadRequestException(
           "Revoke the invitation before deleting it",
@@ -484,6 +521,7 @@ export class CompanyController {
         where: { id },
         data: { status: "Deleted" },
       });
+      await syncUnacceptedEmployee(tx, companyId(req.actor), item.employeeId);
       await tx.audit.create({
         data: {
           actorId: req.actor.id,

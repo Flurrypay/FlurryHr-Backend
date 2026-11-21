@@ -1022,6 +1022,11 @@ try {
     method: "DELETE",
     status: 403,
   });
+  assert.equal(
+    (await call(`employees/${revoked.item.employeeId}`, { cookie: a.cookie }))
+      .body.status,
+    "Not invited",
+  );
   const olderRevoked = await db.invitation.create({
     data: {
       organizationId: a.organization.id,
@@ -1080,6 +1085,35 @@ try {
   );
   assert.ok(
     await db.employee.findUnique({ where: { id: revoked.item.employeeId } }),
+  );
+  assert.equal(
+    (
+      await db.employee.findUniqueOrThrow({
+        where: { id: revoked.item.employeeId },
+      })
+    ).status,
+    "Removed",
+  );
+  await call(`employees/${revoked.item.employeeId}`, {
+    cookie: a.cookie,
+    status: 404,
+  });
+  assert.equal(
+    (
+      await call(`employees?search=${encodeURIComponent(revoked.dto.email)}`, {
+        cookie: a.cookie,
+      })
+    ).body.total,
+    0,
+  );
+  assert.equal(
+    (
+      await call(
+        `directory-options/employees?search=${encodeURIComponent(revoked.dto.email)}`,
+        { cookie: a.cookie },
+      )
+    ).body.total,
+    0,
   );
   await call(`invitations/${revoked.item.id}/history`, {
     cookie: a.cookie,

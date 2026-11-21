@@ -95,7 +95,7 @@ export class PlatformController {
           _count: {
             select: {
               memberships: true,
-              employees: true,
+              employees: { where: { status: { not: "Removed" } } },
               attendance: true,
               invitations: true,
             },

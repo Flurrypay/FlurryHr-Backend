@@ -26,6 +26,7 @@
     "test:saas:browser": "node scripts/saas-browser.mjs",
     "test:workspace-ui": "node scripts/workspace-ui-browser.mjs",
     "test:attendance-location-ui": "node scripts/attendance-location-browser.mjs",
+    "test:new-ui": "node scripts/new-ui-browser.mjs",
     "test:auth-ui": "node scripts/auth-invitations-ui-browser.mjs",
     "test:migration": "node scripts/migration-test.mjs",
     "test:production-attendance": "node scripts/production-attendance-test.mjs",

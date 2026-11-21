@@ -99,6 +99,71 @@ try {
   );
   assert.equal(payroll.netMinor, 100000n);
   assert.equal(await db.employee.count(), 1);
+  const placeholders = [];
+  for (const state of ["Revoked", "Deleted", "Pending"]) {
+    const placeholder = await db.employee.create({
+      data: {
+        organizationId: employee.organizationId,
+        firstName: "Placeholder",
+        lastName: state,
+        email: `${state.toLowerCase()}-${randomUUID()}@example.test`,
+        jobTitle: "Unaccepted employee",
+        departmentId: employee.departmentId,
+        scheduleId: employee.scheduleId,
+        joinedAt: new Date(),
+        status: "Invited",
+      },
+    });
+    await db.invitation.create({
+      data: {
+        organizationId: employee.organizationId,
+        employeeId: placeholder.id,
+        email: placeholder.email,
+        role: "EMPLOYEE",
+        invitedBy: uid,
+        status: state,
+        tokenHash: randomUUID(),
+        expiresAt: new Date(Date.now() + 86400000),
+      },
+    });
+    placeholders.push(placeholder);
+  }
+  // An established employee/account must not be removed by invitation cleanup.
+  await db.invitation.create({
+    data: {
+      organizationId: employee.organizationId,
+      employeeId: employee.id,
+      email: employee.email,
+      role: "EMPLOYEE",
+      invitedBy: uid,
+      status: "Deleted",
+      tokenHash: randomUUID(),
+      expiresAt: new Date(Date.now() + 86400000),
+    },
+  });
+  const repair = await fs.readFile(
+    "prisma/migrations/202611210003_invitation_employee_status/migration.sql",
+    "utf8",
+  );
+  await db.$executeRawUnsafe(repair);
+  await db.$executeRawUnsafe(repair);
+  assert.deepEqual(
+    await Promise.all(
+      placeholders.map(
+        async (e) =>
+          (await db.employee.findUniqueOrThrow({ where: { id: e.id } })).status,
+      ),
+    ),
+    ["Not invited", "Removed", "Invited"],
+  );
+  assert.equal(
+    (await db.employee.findUniqueOrThrow({ where: { id: employee.id } }))
+      .status,
+    employee.status,
+  );
+  console.log(
+    "PASS: legacy invitation repair is idempotent; revoked/deleted placeholders corrected, pending invitations and established accounts preserved",
+  );
   console.log(
     "PASS: initial-schema fixtures survive additive SaaS migration; identities/password hashes, employee IDs, departments, schedules, overnight attendance, payroll minor units, permissions and existing sessions preserved; legacy administrators do not gain platform privileges; repeated migrate deploy is idempotent.",
   );

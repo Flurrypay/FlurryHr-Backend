@@ -58,13 +58,14 @@ export class HrController {
     });
   }
   private scope(actor: Actor): Prisma.EmployeeWhereInput {
-    return ADMIN.includes(actor.role)
+    const visible: Prisma.EmployeeWhereInput = ADMIN.includes(actor.role)
       ? {}
       : actor.role === "MANAGER"
         ? {
             OR: [{ managerId: ownEmployee(actor) }, { id: ownEmployee(actor) }],
           }
         : { id: ownEmployee(actor) };
+    return { AND: [{ status: { not: "Removed" } }, visible] };
   }
   @Get("directory-options")
   async options(
@@ -423,7 +424,7 @@ export class HrController {
       throw new BadRequestException("You cannot deactivate your own account");
     return this.db.$transaction(async (tx) => {
       const before = await tx.employee.findUniqueOrThrow({ where: { id } });
-      if (before.status === "Invited")
+      if (["Invited", "Not invited", "Removed"].includes(before.status))
         throw new BadRequestException(
           "Pending employees must accept their invitation before activation or offboarding. Revoke an unused invitation instead.",
         );
@@ -514,7 +515,11 @@ export class HrController {
       {
         searchFields: ["name"],
         filterFields: [],
-        include: { _count: { select: { employees: true } } },
+        include: {
+          _count: {
+            select: { employees: { where: { status: { not: "Removed" } } } },
+          },
+        },
         orderBy: { name: "asc" },
       },
       q,

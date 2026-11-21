@@ -31,13 +31,16 @@ export class DashboardController {
     const zone = req.actor.organization!.timezone;
     const now = DateTime.now().setZone(zone),
       date = now.toISODate()!;
-    const scope: Prisma.EmployeeWhereInput = ADMIN.includes(actor.role)
-      ? {}
+    const roleScope: Prisma.EmployeeWhereInput = ADMIN.includes(actor.role)
+      ? { status: { not: "Removed" } }
       : actor.role === "MANAGER"
         ? {
             OR: [{ managerId: ownEmployee(actor) }, { id: ownEmployee(actor) }],
           }
         : { id: ownEmployee(actor) };
+    const scope: Prisma.EmployeeWhereInput = {
+      AND: [roleScope, { status: { not: "Removed" } }],
+    };
     const [employeeTotal, employeeActive, recentHires] = await Promise.all([
       this.db.employee.count({ where: scope }),
       this.db.employee.count({ where: { AND: [scope, { status: "Active" }] } }),
