@@ -57,6 +57,8 @@ jobs:
         working-directory: backend
       - run: node scripts/production-attendance-test.mjs
         working-directory: backend
+      - run: npm run test:list-plans
+        working-directory: backend
       - run: npm run test:mail-queue
         working-directory: backend
       - name: Create isolated migration and restore databases

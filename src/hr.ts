@@ -527,7 +527,7 @@ export class HrController {
   @Get("leave")
   async leave(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     const scope = this.scope(req.actor);
-    const [requestsPage, allocations] = await Promise.all([
+    const [requestsPage, balancesPage] = await Promise.all([
       paged(
         this.db.leaveRequest,
         {
@@ -542,34 +542,69 @@ export class HrController {
         },
         q,
       ),
-      this.db.leaveAllocation.findMany({
-        where: {
-          employeeId: ownEmployee(req.actor),
-          year: DateTime.now().setZone(req.actor.organization!.timezone).year,
-        },
-        include: { leaveType: true },
-      }),
+      q.includeBalances === "false"
+        ? Promise.resolve(null)
+        : this.leaveBalances(req, { limit: "20" }),
     ]);
-    const balances = await Promise.all(
-      allocations.map(async (a) => {
-        const used = await this.db.leaveRequest.aggregate({
-          where: {
-            employeeId: a.employeeId,
-            leaveTypeId: a.leaveTypeId,
-            startDate: { startsWith: String(a.year) },
-            status: { in: ["Pending", "Approved"] },
-          },
-          _sum: { days: true },
-        });
-        return { ...a, remaining: a.days - (used._sum.days || 0) };
-      }),
-    );
     return {
       requests: requestsPage.items,
-      balances,
+      balances: balancesPage?.items ?? [],
+      balanceTotal: balancesPage?.total ?? null,
       total: requestsPage.total,
       page: requestsPage.page,
       limit: requestsPage.limit,
+      nextCursor: requestsPage.nextCursor,
+    };
+  }
+  @Get("leave/balances")
+  async leaveBalances(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    const employeeId = ownEmployee(req.actor);
+    const yearText =
+      q.year ??
+      String(DateTime.now().setZone(req.actor.organization!.timezone).year);
+    if (
+      typeof yearText !== "string" ||
+      !/^\d{4}$/.test(yearText) ||
+      Number(yearText) < 2000 ||
+      Number(yearText) > 2200
+    )
+      throw new BadRequestException(
+        "Choose a leave year between 2000 and 2200",
+      );
+    const year = Number(yearText);
+    const result = await paged(
+      this.db.leaveAllocation,
+      {
+        where: { employeeId, year },
+        include: { leaveType: true },
+        orderBy: { id: "asc" },
+      },
+      q,
+    );
+    const used = result.items.length
+      ? await this.db.leaveRequest.groupBy({
+          by: ["leaveTypeId"],
+          where: {
+            employeeId,
+            leaveTypeId: { in: result.items.map((item) => item.leaveTypeId) },
+            startDate: { startsWith: String(year) },
+            status: { in: ["Pending", "Approved"] },
+          },
+          _sum: { days: true },
+        })
+      : [];
+    const usedByType = new Map(
+      used.map((item) => [item.leaveTypeId, item._sum.days || 0]),
+    );
+    return {
+      ...result,
+      items: result.items.map((item) => ({
+        ...item,
+        remaining: item.days - (usedByType.get(item.leaveTypeId) || 0),
+      })),
     };
   }
   @Post("leave/allocations")

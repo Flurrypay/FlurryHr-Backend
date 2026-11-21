@@ -42,12 +42,13 @@ export function arrivalStatus(
   },
 ): string {
   const local = DateTime.fromJSDate(now, { zone: schedule.timezone });
-  let start = local.startOf("day").plus({ minutes: schedule.startMinute });
+  let date = local.toISODate()!;
   if (
     schedule.endMinute < schedule.startMinute &&
     local.hour * 60 + local.minute < schedule.endMinute
   )
-    start = start.minus({ days: 1 });
+    date = local.minus({ days: 1 }).toISODate()!;
+  const start = shiftWindow(date, { ...schedule, workingDays: [] }).start;
   return local > start.plus({ minutes: schedule.graceMinutes })
     ? "Late"
     : "Present";
@@ -75,11 +76,34 @@ export function shiftWindow(date: string, schedule: WorkSchedule) {
     "day",
   );
   if (!day.isValid) throw new Error("Invalid schedule date");
-  const start = day.plus({ minutes: schedule.startMinute });
-  const end = day.plus({
-    days: schedule.endMinute <= schedule.startMinute ? 1 : 0,
-    minutes: schedule.endMinute,
-  });
+  // Scheduled minutes are wall-clock times, not elapsed minutes since midnight.
+  // A DST transition must not turn a configured 09:00 shift into 08:00/10:00.
+  const wallTime = (date: DateTime, minute: number) => {
+    const value = DateTime.fromObject(
+      {
+        year: date.year,
+        month: date.month,
+        day: date.day,
+        hour: Math.floor(minute / 60),
+        minute: minute % 60,
+      },
+      { zone: schedule.timezone },
+    );
+    // Match PostgreSQL AT TIME ZONE: choose the later instant on a repeated
+    // local time; a nonexistent local time advances by the DST gap.
+    return value
+      .getPossibleOffsets()
+      .reduce(
+        (latest, option) =>
+          option.toMillis() > latest.toMillis() ? option : latest,
+        value,
+      );
+  };
+  const start = wallTime(day, schedule.startMinute);
+  const end = wallTime(
+    day.plus({ days: schedule.endMinute <= schedule.startMinute ? 1 : 0 }),
+    schedule.endMinute,
+  );
   return { day, start, end };
 }
 export function currentShift(now: Date, schedule: WorkSchedule) {
@@ -100,9 +124,6 @@ export function dayAttendanceStatus(
   now = new Date(),
 ) {
   const shift = shiftWindow(date, schedule);
-  if (onLeave) return "On Leave";
-  if (holiday) return "Holiday";
-  if (!schedule.workingDays.includes(shift.day.weekday)) return "Rest Day";
   if (
     sessions.some(
       (s) => !s.clockOut && now.getTime() - s.clockIn.getTime() > 24 * 3600000,
@@ -111,6 +132,9 @@ export function dayAttendanceStatus(
     return "Incomplete Session";
   if (sessions.length)
     return sessions.some((s) => s.status === "Late") ? "Late" : "Present";
+  if (onLeave) return "On Leave";
+  if (holiday) return "Holiday";
+  if (!schedule.workingDays.includes(shift.day.weekday)) return "Rest Day";
   return DateTime.fromJSDate(now) >
     shift.start.plus({ minutes: schedule.graceMinutes })
     ? "Absent"

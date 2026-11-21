@@ -25,3 +25,7 @@ Daily reports use the requested work date. Live dashboard counts derive each emp
 ## Query and export bounds
 
 Attendance is grouped by organization/workDate/employee in PostgreSQL. Search/status filtering, counting and pagination occur in the database; only one bounded page reaches the application. CSV exports stream bounded pages with backpressure instead of silently truncating at 10,000 rows. Maximum export date range remains 93 days. Workforce state/history and live roster policy improvements are tracked separately in the completion checklist.
+
+## DST clock policy (21 November)
+
+Configured start/end minutes represent local wall-clock times. Construct them in the schedule timezone; do not add elapsed minutes to midnight. On a repeated local time choose the later instant, matching PostgreSQL `AT TIME ZONE`. A nonexistent time advances by the DST gap. Grace is elapsed time after the resolved start instant, including when it crosses an offset change. Overnight elapsed duration can therefore be seven or nine hours for a nominal eight-hour window. PostgreSQL classification and JavaScript arrival/correction helpers use the same policy. Recorded/incomplete sessions take precedence over calendar exemptions; leave/holiday/rest flags still affect expected attendance separately. Effective-dated assignments and explicit ambiguous-gap selection remain unfinished.

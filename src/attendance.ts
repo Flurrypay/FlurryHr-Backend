@@ -1,4 +1,4 @@
-import { paged } from "./pagination";
+import { paged, pagination } from "./pagination";
 import {
   Controller,
   Get,
@@ -160,6 +160,12 @@ export class AttendanceController {
   @Get()
   async list(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, PEOPLE);
+    pagination(q);
+    if (
+      q.date !== undefined &&
+      (typeof q.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(q.date))
+    )
+      throw new BadRequestException("Choose a valid YYYY-MM-DD date");
     const employeeWhere: Prisma.EmployeeWhereInput = {
       ...(req.actor.role === "MANAGER"
         ? {

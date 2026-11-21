@@ -108,7 +108,7 @@ export class AttendanceCalculation {
           WHEN on_leave THEN 'On Leave'
           WHEN holiday THEN 'Holiday'
           WHEN NOT (rules->'workingDays' @> to_jsonb(extract(isodow FROM work_date::date)::int)) THEN 'Rest Day'
-          WHEN ${now.toISOString()}::timestamptz > ((work_date::date + ((rules->>'startMinute')::int+(rules->>'graceMinutes')::int)*interval '1 minute') AT TIME ZONE (rules->>'timezone')) THEN 'Absent'
+          WHEN ${now.toISOString()}::timestamptz > ((work_date::date + (rules->>'startMinute')::int*interval '1 minute') AT TIME ZONE (rules->>'timezone')) + (rules->>'graceMinutes')::int*interval '1 minute' THEN 'Absent'
           ELSE 'Not started' END AS status
         FROM base
       ) SELECT jsonb_build_object('id',id,'firstName',"firstName",'lastName',"lastName",'jobTitle',"jobTitle",'department',department) AS employee,

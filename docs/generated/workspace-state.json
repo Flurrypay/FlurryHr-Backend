@@ -1,0 +1,78 @@
+{
+  "recordedAt": "2026-11-21T11:24:56.933789+00:00",
+  "repositories": {
+    "backend": {
+      "head": "3be158beb8df670929e83f0624c7e97b482a91f2",
+      "status": [
+        "M .github/workflows/verify.yml",
+        " M docs/ARCHITECTURE.md",
+        " M docs/ATTENDANCE_RULES.md",
+        " M docs/DEPLOYMENT_RUNBOOK.md",
+        " M docs/IMPLEMENTATION_HANDOFF.md",
+        " M docs/KNOWN_LIMITATIONS.md",
+        " M docs/PRODUCTION_COMPLETION_CHECKLIST.md",
+        " M docs/TEST_COVERAGE.md",
+        " M docs/generated/requirement-inventory.json",
+        " M scripts/production-attendance-test.mjs",
+        " M scripts/saas-browser.mjs",
+        " M scripts/saas-integration.mjs",
+        " M src/attendance-calculation.ts",
+        " M src/attendance.ts",
+        " M src/domain.test.ts",
+        " M src/domain.ts",
+        " M src/hr.ts"
+      ],
+      "diffStat": [
+        ".github/workflows/verify.yml              |    2 +",
+        " docs/ARCHITECTURE.md                      |    4 +-",
+        " docs/ATTENDANCE_RULES.md                  |    4 +",
+        " docs/DEPLOYMENT_RUNBOOK.md                |    2 +",
+        " docs/IMPLEMENTATION_HANDOFF.md            |   56 +-",
+        " docs/KNOWN_LIMITATIONS.md                 |    4 +-",
+        " docs/PRODUCTION_COMPLETION_CHECKLIST.md   | 1316 ++++++++++++++---------------",
+        " docs/TEST_COVERAGE.md                     |    6 +-",
+        " docs/generated/requirement-inventory.json |  152 ++--",
+        " scripts/production-attendance-test.mjs    |  266 +++++-",
+        " scripts/saas-browser.mjs                  |  166 +++-",
+        " scripts/saas-integration.mjs              |   17 +",
+        " src/attendance-calculation.ts             |    2 +-",
+        " src/attendance.ts                         |    8 +-",
+        " src/domain.test.ts                        |   94 +++",
+        " src/domain.ts                             |   44 +-",
+        " src/hr.ts                                 |   79 +-",
+        " 17 files changed, 1403 insertions(+), 819 deletions(-)"
+      ]
+    },
+    "frontend": {
+      "head": "95d89a8fc0475bcdf129b6faeeba91213fbd60c2",
+      "status": [
+        "M src/Workspace.tsx",
+        " M src/saas/WorkspaceModules.tsx",
+        " M src/saas/ui.tsx"
+      ],
+      "diffStat": [
+        "src/Workspace.tsx             |  7 +++++--",
+        " src/saas/WorkspaceModules.tsx | 14 ++++++++------",
+        " src/saas/ui.tsx               |  9 +++++++--",
+        " 3 files changed, 20 insertions(+), 10 deletions(-)"
+      ]
+    }
+  },
+  "tests": {
+    "units": 33,
+    "databaseAssertions": 264,
+    "httpChecks": 171,
+    "chrome": "passed",
+    "migration": "nine additive migrations; legacy preservation and repeated deployment passed",
+    "queryPlans": "four 10000-row first-page indexed plans passed; not a load benchmark",
+    "staticChecks": "both apps lint/typecheck/build/format passed"
+  },
+  "services": {
+    "ownedTestApi4002": "stopped",
+    "ownedTestPostgres55432": "stopped; /tmp/flurryhr-pg",
+    "existingFrontend5175": "left running as found",
+    "workingDatabase55433": "untouched"
+  },
+  "nextRequirement": "SPEC-044 / SPEC-058 / SPEC-118\u2013128 / PROSE-045: effective-dated schedule assignment history and historical absences; see IMPLEMENTATION_HANDOFF.md",
+  "operationNotes": "No commits, pushes, real external messages, payments, production deployments or working-database migrations performed by this agent. User commits changed HEAD during execution; preserve them."
+}

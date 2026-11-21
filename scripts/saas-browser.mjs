@@ -836,6 +836,70 @@ try {
     owner.getByRole("table").getByText("Completed", { exact: true }),
   ).toBeVisible();
   const collectionPrefix = `Paged collection ${suffix}`;
+  const listEmployees = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    firstName: `Paged person ${String(i).padStart(3, "0")}`,
+    lastName: "Fixture",
+    email: randomUUID() + "@example.test",
+    jobTitle: "List fixture",
+    joinedAt: new Date("2026-01-01"),
+    departmentId: record.departmentId,
+    scheduleId: record.scheduleId,
+  }));
+  await db.employee.createMany({ data: listEmployees });
+  const listLeaveType = await db.leaveType.findFirstOrThrow({
+    where: { organizationId: a.organization.id },
+  });
+  const listOwner = await db.membership.findFirstOrThrow({
+    where: { organizationId: a.organization.id, role: "OWNER" },
+  });
+  await db.leaveAllocation.createMany({
+    data: listEmployees.map((e) => ({
+      organizationId: a.organization.id,
+      employeeId: e.id,
+      leaveTypeId: listLeaveType.id,
+      year: 2027,
+      days: 1,
+    })),
+  });
+  await db.leaveRequest.createMany({
+    data: listEmployees.map((e) => ({
+      organizationId: a.organization.id,
+      employeeId: e.id,
+      leaveTypeId: listLeaveType.id,
+      startDate: "2027-01-04",
+      endDate: "2027-01-04",
+      days: 1,
+      reason: `${collectionPrefix} leave`,
+    })),
+  });
+  await db.payroll.createMany({
+    data: listEmployees.map((e) => ({
+      organizationId: a.organization.id,
+      employeeId: e.id,
+      period: "2098-01",
+      baseMinor: 100n,
+      netMinor: 100n,
+      createdBy: listOwner.userId,
+    })),
+  });
+  await db.notification.createMany({
+    data: listEmployees.map((_, i) => ({
+      organizationId: a.organization.id,
+      userId: listOwner.userId,
+      title: `${collectionPrefix} notification ${i}`,
+      body: "List fixture",
+    })),
+  });
+  await db.audit.createMany({
+    data: listEmployees.map((e) => ({
+      organizationId: a.organization.id,
+      actorId: listOwner.userId,
+      action: `${collectionPrefix} audit`,
+      entityId: e.id,
+    })),
+  });
   const taskFixtures = Array.from({ length: 125 }, (_, i) => ({
     id: randomUUID(),
     organizationId: a.organization.id,
@@ -863,19 +927,29 @@ try {
   await db.task.createMany({ data: taskFixtures });
   await db.asset.createMany({ data: assetFixtures });
   await db.document.createMany({ data: documentFixtures });
-  for (const [navigation, searchLabel, path, kind] of [
+  for (const [navigation, searchLabel, path, kind, selector = "tbody tr"] of [
     ["Tasks & Assignments", "Search tasks", "tasks", "task"],
     ["Company Assets", "Search assets", "assets", "asset"],
     ["Documents", "Search documents", "documents", "document"],
+    ["Leave Management", "Search leave requests", "leave", "leave"],
+    ["Payroll", "Search payroll", "payroll", "payroll"],
+    [
+      "Notifications",
+      "Search notifications",
+      "notifications",
+      "notification",
+      ".saas-notifications article",
+    ],
+    ["Audit Logs", "Search audit", "audit", "audit"],
   ]) {
     await nav(owner, navigation);
     await owner
       .getByLabel(searchLabel, { exact: true })
-      .fill(`${collectionPrefix} ${kind}`);
+      .fill(kind === "payroll" ? "2098-01" : `${collectionPrefix} ${kind}`);
     const pagination = owner.locator(".pagination").last();
     await expect(pagination).toContainText("125 records");
-    await expect(owner.locator("tbody tr")).toHaveCount(20);
-    const firstRows = await owner.locator("tbody tr").allTextContents();
+    await expect(owner.locator(selector)).toHaveCount(20);
+    const firstRows = await owner.locator(selector).allTextContents();
     const next = responseFor(owner, (response) => {
       const url = new URL(response.url());
       return (
@@ -888,11 +962,11 @@ try {
       .click();
     assert.ok(new URL((await next).url()).searchParams.get("after"));
     await expect
-      .poll(() => owner.locator("tbody tr").allTextContents())
+      .poll(() => owner.locator(selector).allTextContents())
       .not.toEqual(firstRows);
-    await expect(owner.locator("tbody tr")).toHaveCount(20);
+    await expect(owner.locator(selector)).toHaveCount(20);
     assert.equal(
-      (await owner.locator("tbody tr").allTextContents()).filter((row) =>
+      (await owner.locator(selector).allTextContents()).filter((row) =>
         firstRows.includes(row),
       ).length,
       0,
@@ -901,9 +975,34 @@ try {
       .getByRole("button", { name: "Previous page", exact: true })
       .click();
     await expect
-      .poll(() => owner.locator("tbody tr").allTextContents())
+      .poll(() => owner.locator(selector).allTextContents())
       .toEqual(firstRows);
   }
+  const listEmployeeScope = {
+    organizationId: a.organization.id,
+    employeeId: { in: listEmployees.map((e) => e.id) },
+  };
+  await db.leaveRequest.deleteMany({ where: listEmployeeScope });
+  await db.leaveAllocation.deleteMany({ where: listEmployeeScope });
+  await db.payroll.deleteMany({ where: listEmployeeScope });
+  await db.employee.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: listEmployees.map((e) => e.id) },
+    },
+  });
+  await db.notification.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      title: { startsWith: collectionPrefix },
+    },
+  });
+  await db.audit.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      action: { startsWith: collectionPrefix },
+    },
+  });
   await db.task.deleteMany({
     where: {
       organizationId: a.organization.id,
@@ -1019,6 +1118,57 @@ try {
     "Startup must not traverse configuration collections",
   );
   owner.off("request", recordConfigurationPage);
+  await db.leaveAllocation.createMany({
+    data: leaveTypeFixtures.map((t) => ({
+      organizationId: a.organization.id,
+      employeeId: listOwner.employeeId,
+      leaveTypeId: t.id,
+      year: new Date().getUTCFullYear(),
+      days: 3,
+    })),
+  });
+  await nav(owner, "Leave Management");
+  await expect(owner.locator(".balance-card")).toHaveCount(20);
+  const balancePagination = owner
+    .locator(".pagination")
+    .filter({ hasText: "125 records" });
+  await expect(balancePagination).toBeVisible();
+  const firstBalances = await owner.locator(".balance-card").allTextContents();
+  const nextBalances = responseFor(owner, (response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/leave/balances" &&
+      url.searchParams.has("after") &&
+      response.ok()
+    );
+  });
+  await balancePagination
+    .getByRole("button", { name: "Next page", exact: true })
+    .click();
+  await nextBalances;
+  await expect(balancePagination).toContainText("Page 2 of 7");
+  await expect
+    .poll(() => owner.locator(".balance-card").allTextContents())
+    .not.toEqual(firstBalances);
+  assert.equal(
+    (await owner.locator(".balance-card").allTextContents()).filter((row) =>
+      firstBalances.includes(row),
+    ).length,
+    0,
+  );
+  await balancePagination
+    .getByRole("button", { name: "Previous page", exact: true })
+    .click();
+  await expect
+    .poll(() => owner.locator(".balance-card").allTextContents())
+    .toEqual(firstBalances);
+  await db.leaveAllocation.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      employeeId: listOwner.employeeId,
+      leaveTypeId: { in: leaveTypeFixtures.map((t) => t.id) },
+    },
+  });
   await db.schedule.deleteMany({
     where: {
       organizationId: a.organization.id,

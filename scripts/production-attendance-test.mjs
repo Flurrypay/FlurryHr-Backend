@@ -14,6 +14,8 @@ const {
 } = require("../dist/src/account-security.js");
 const { PlatformController } = require("../dist/src/platform.js");
 const { HrController } = require("../dist/src/hr.js");
+const { AttendanceController } = require("../dist/src/attendance.js");
+const { dayAttendanceStatus, shiftWindow } = require("../dist/src/domain.js");
 const { ResourcesController } = require("../dist/src/resources.js");
 if (
   !/^\/flurryhr_test(?:_[a-z0-9]+)*$/i.test(
@@ -57,7 +59,7 @@ try {
       graceMinutes: 15,
     },
   });
-  const actor = { id: "fixture-reviewer", role: "OWNER", organization };
+  const actor = { id: randomUUID(), role: "OWNER", organization };
   const calculation = new AttendanceCalculation(db),
     company = new CompanyController(db);
   async function employee(label, scheduleId = schedule.id) {
@@ -240,6 +242,74 @@ try {
     scheduleId: schedule.id,
   }));
   await sys.employee.createMany({ data: people });
+  await sys.user.create({
+    data: {
+      id: actor.id,
+      email: randomUUID() + "@example.test",
+      passwordHash: "[Unusable isolated fixture]",
+    },
+  });
+  fixtureUsers.push(actor.id);
+  await sys.employee.update({
+    where: { id: people[0].id },
+    data: { userId: actor.id },
+  });
+  await sys.membership.create({
+    data: {
+      organizationId: org,
+      userId: actor.id,
+      employeeId: people[0].id,
+      role: "OWNER",
+    },
+  });
+  await sys.attendance.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: org,
+      employeeId: people[0].id,
+      clockIn: new Date(Date.UTC(2026, 5, 1, 9, i * 2)),
+      clockOut: new Date(Date.UTC(2026, 5, 1, 9, i * 2 + 1)),
+      status: "Present",
+    })),
+  });
+  await tenantContext.run({ organizationId: org }, async () => {
+    const attendance = new AttendanceController(db, calculation),
+      req = { actor: { ...actor, employee: people[0] } };
+    for (const mine of [true, false]) {
+      const ids = new Set();
+      let after;
+      for (let page = 1; page <= 7; page++) {
+        const q = {
+          date: "2026-06-01",
+          page: String(page),
+          ...(after ? { after } : {}),
+        };
+        const result = await (mine
+          ? attendance.mine(req, q)
+          : attendance.list(req, q));
+        check(result.total, 125);
+        after = result.nextCursor;
+        for (const item of mine ? result.history : result.items) {
+          assert.ok(!ids.has(item.id));
+          ids.add(item.id);
+        }
+      }
+      check(ids.size, 125);
+    }
+    await assert.rejects(
+      attendance.list(req, { date: ["2026-06-01"] }),
+      /valid YYYY-MM-DD/,
+    );
+    checks++;
+    await assert.rejects(
+      attendance.list(req, { department: [department.id] }),
+      /Invalid department/,
+    );
+    checks++;
+    await assert.rejects(
+      attendance.list({ actor: { ...req.actor, role: "EMPLOYEE" } }, {}),
+    );
+    checks++;
+  });
   const invites = people.map((e, i) => ({
     id: randomUUID(),
     organizationId: org,
@@ -541,6 +611,52 @@ try {
       uploadedBy: actor.id,
     })),
   });
+  await sys.leaveAllocation.createMany({
+    data: people.slice(0, 125).map((e) => ({
+      organizationId: org,
+      employeeId: e.id,
+      leaveTypeId: type.id,
+      year: 2027,
+      days: 1,
+    })),
+  });
+  await sys.leaveRequest.createMany({
+    data: people.slice(0, 125).map((e) => ({
+      organizationId: org,
+      employeeId: e.id,
+      leaveTypeId: type.id,
+      startDate: "2027-01-04",
+      endDate: "2027-01-04",
+      days: 1,
+      reason: "Bulk leave fixture",
+    })),
+  });
+  await sys.payroll.createMany({
+    data: people.slice(0, 125).map((e) => ({
+      organizationId: org,
+      employeeId: e.id,
+      period: "2027-01",
+      baseMinor: 100n,
+      netMinor: 100n,
+      createdBy: actor.id,
+    })),
+  });
+  await sys.notification.createMany({
+    data: people.slice(0, 125).map(() => ({
+      organizationId: org,
+      userId: actor.id,
+      title: "Bulk notification",
+      body: "Fixture",
+    })),
+  });
+  await sys.audit.createMany({
+    data: people.slice(0, 125).map((e) => ({
+      organizationId: org,
+      actorId: actor.id,
+      action: "Bulk audit fixture",
+      entityId: e.id,
+    })),
+  });
   await tenantContext.run({ organizationId: org }, async () => {
     const hr = new HrController(db),
       resources = new ResourcesController(db),
@@ -591,6 +707,119 @@ try {
     check((await resources.documents(staff, { search: "Bulk" })).total, 0);
     check((await resources.assets(staff, { search: "Bulk" })).total, 0);
     check((await hr.tasks(staff, { search: "Bulk" })).total, 0);
+    for (const load of [
+      async (q) => {
+        const result = await hr.leave(
+          { actor: { ...actor, employee: people[0] } },
+          q,
+        );
+        return { ...result, items: result.requests };
+      },
+      (q) => hr.payroll(req, { ...q, search: "2027-01" }),
+      (q) => company.notifications(req, q),
+      (q) => hr.auditLogs(req, q),
+    ]) {
+      const ids = new Set();
+      let after;
+      for (let page = 1; page <= 7; page++) {
+        const result = await load({
+          search: "Bulk",
+          page: String(page),
+          ...(after ? { after } : {}),
+        });
+        check(result.total, 125);
+        assert.ok(
+          result.nextCursor,
+          "Every nonempty page exposes its continuation position",
+        );
+        after = result.nextCursor;
+        for (const item of result.items) {
+          assert.ok(!ids.has(item.id));
+          ids.add(item.id);
+        }
+      }
+      check(ids.size, 125);
+    }
+    check((await company.notifications(staff, { search: "Bulk" })).total, 125);
+    check(
+      (
+        await company.notifications(
+          { actor: { ...staff.actor, id: "another-identity" } },
+          { search: "Bulk" },
+        )
+      ).total,
+      0,
+    );
+    check(
+      (await hr.payroll(staff, { search: "2027-01", status: "Draft" })).total,
+      0,
+    );
+    check((await hr.leave(staff, { search: "Bulk" })).total, 1);
+    const balanceTypes = await sys.leaveType.findMany({
+      where: { organizationId: org, name: { startsWith: "Bulk leave type" } },
+    });
+    await sys.leaveAllocation.createMany({
+      data: balanceTypes.map((t) => ({
+        organizationId: org,
+        employeeId: people[0].id,
+        leaveTypeId: t.id,
+        year: 2026,
+        days: 10,
+      })),
+    });
+    await sys.leaveRequest.createMany({
+      data: ["Pending", "Rejected", "Cancelled"].map((status, i) => ({
+        organizationId: org,
+        employeeId: people[0].id,
+        leaveTypeId: balanceTypes[0].id,
+        startDate: `2026-12-0${i + 1}`,
+        endDate: `2026-12-0${i + 1}`,
+        days: 1,
+        reason: "Isolated balance calculation",
+        status,
+      })),
+    });
+    const ownReq = { actor: { ...actor, employee: people[0] } };
+    const balanceIds = new Set();
+    let balanceAfter;
+    for (let page = 1; page <= 7; page++) {
+      const result = await hr.leaveBalances(ownReq, {
+        year: "2026",
+        page: String(page),
+        ...(balanceAfter ? { after: balanceAfter } : {}),
+      });
+      check(result.total, 125);
+      balanceAfter = result.nextCursor;
+      for (const balance of result.items) {
+        assert.ok(!balanceIds.has(balance.id));
+        balanceIds.add(balance.id);
+        assert.equal(
+          balance.remaining,
+          balance.leaveTypeId === balanceTypes[0].id ? 9 : 10,
+        );
+      }
+    }
+    check(balanceIds.size, 125);
+    check((await hr.leaveBalances(staff, { year: "2026" })).total, 0);
+    const legacyPreview = await hr.leave(ownReq, {});
+    check(legacyPreview.balances.length, 20);
+    check(legacyPreview.balanceTotal, 125);
+    check(
+      (await hr.leave(ownReq, { includeBalances: "false" })).balanceTotal,
+      null,
+    );
+    await assert.rejects(hr.leaveBalances(ownReq, { year: ["2026"] }));
+    checks++;
+    const balanceFirst = await hr.leaveBalances(ownReq, { year: "2026" });
+    await assert.rejects(
+      hr.leaveBalances(ownReq, {
+        year: "2027",
+        after: balanceFirst.nextCursor,
+      }),
+    );
+    checks++;
+    await assert.rejects(async () => hr.auditLogs(staff, {}));
+    checks++;
   });
   const historyTask = await sys.task.create({
     data: {
@@ -910,6 +1139,41 @@ try {
       },
     }),
   );
+  for (const [date, startMinute, graceMinutes, now, expected] of [
+    ["2026-03-08", 540, 15, "2026-03-08T13:16Z", "Absent"],
+    ["2026-11-01", 540, 15, "2026-11-01T14:10Z", "Not started"],
+    ["2026-11-01", 90, 15, "2026-11-01T06:46Z", "Absent"],
+    ["2026-03-08", 150, 15, "2026-03-08T07:46Z", "Absent"],
+    ["2026-11-01", 55, 75, "2026-11-01T06:10Z", "Not started"],
+    ["2026-11-01", 55, 75, "2026-11-01T06:11Z", "Absent"],
+  ]) {
+    const dst = await sys.schedule.create({
+      data: {
+        organizationId: org,
+        name: randomUUID(),
+        timezone: "America/New_York",
+        workingDays: [1, 2, 3, 4, 5, 6, 7],
+        startMinute,
+        endMinute: 1020,
+        graceMinutes,
+      },
+    });
+    const person = await employee("DST fixture", dst.id);
+    const [result] = await sys.$queryRaw(
+      calculation.dataset(actor, date, { employee: person.id }, new Date(now)),
+    );
+    check(result.status, expected);
+    check(
+      result.status,
+      dayAttendanceStatus(date, dst, [], false, false, new Date(now)),
+    );
+    const [wall] =
+      await sys.$queryRaw`SELECT ((${date}::date + ${startMinute}*interval '1 minute') AT TIME ZONE 'America/New_York') AS instant`;
+    check(
+      wall.instant.toISOString(),
+      shiftWindow(date, dst).start.toJSDate().toISOString(),
+    );
+  }
   console.log(
     `PASS: ${checks} attendance/snapshot/zone/correction, list/history/lookup/cursor and >1,000-invitation / >10,000-employee assertions; all fixture data isolated and cleaned.`,
   );

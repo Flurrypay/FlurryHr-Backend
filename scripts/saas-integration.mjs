@@ -493,6 +493,23 @@ try {
     (await call("leave", { cookie: e.cookie })).body.balances[0].remaining,
     8,
   );
+  const balancePage = (await call("leave/balances", { cookie: e.cookie })).body;
+  assert.equal(balancePage.total, 1);
+  assert.equal(balancePage.items[0].remaining, 8);
+  assert.ok(balancePage.nextCursor);
+  await call("leave/balances?year=invalid", { cookie: e.cookie, status: 400 });
+  await call("leave/balances?year=2026&year=2027", {
+    cookie: e.cookie,
+    status: 400,
+  });
+  assert.equal(
+    (
+      await call(`leave/balances?employeeId=${a.employee.id}`, {
+        cookie: e.cookie,
+      })
+    ).body.items[0].employeeId,
+    e.employee.id,
+  );
   const notices = (await call("notifications", { cookie: e.cookie })).body;
   assert.ok(notices.some((n) => n.title === "Leave request reviewed"));
   await call(`leave/${leave.id}/reverse`, {

@@ -1,10 +1,10 @@
 {
   "description": "All original IDs retained. Section groups are parent-child navigation, duplicate descriptions remain independent acceptance entries. Source/test reconciliation is ongoing; statuses are never inferred from another row.",
   "statuses": {
-    "NOT_STARTED": 756,
-    "IN_PROGRESS": 13,
-    "IMPLEMENTED": 7,
-    "VERIFIED": 89,
+    "NOT_STARTED": 754,
+    "IN_PROGRESS": 15,
+    "IMPLEMENTED": 1,
+    "VERIFIED": 95,
     "BLOCKED": 7
   },
   "sourceDescriptionsVerified": { "spec": 645, "prose": 212 },
@@ -76,46 +76,10 @@
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
     },
     {
-      "id": "SPEC-064",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
-      "id": "SPEC-066",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
-      "id": "SPEC-067",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
-      "id": "SPEC-070",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
       "id": "SPEC-071",
       "stage": 1,
       "priority": "P1",
       "dependencies": "Relevant module"
-    },
-    {
-      "id": "SPEC-072",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
-      "id": "SPEC-073",
-      "stage": 1,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
     },
     {
       "id": "SPEC-075",
@@ -5737,12 +5701,12 @@
       "section": "Lists",
       "requirement": "Paginate all full list endpoints and UI",
       "status": "IN_PROGRESS",
-      "existingImplementation": "Several hard caps and array responses",
-      "gap": "Shared pagination contract and filters",
+      "existingImplementation": "Scoped cursor pages; nested histories; bounded initial directories; remote custom lookup menus; paged schedule/leave-type configuration",
+      "gap": "Remaining per-list acceptance, mutable-sort/archive semantics and broader search/index capacity",
       "priority": "P0",
       "dependencies": "None",
       "coverage": "Unit pagination + API/Chrome; invitation large fixture",
-      "evidence": "21 Nov: nested candidate/task/asset pages, bounded searchable form lookups, bounded initial roster, scoped row labels, list filters and cursor continuation tested. Raw SQL/platform/account-session cursor paths implemented; configuration/filter dropdown scalability, query plans and mutable-sort/snapshot semantics still open",
+      "evidence": "21 Nov: 33 units; expanded DB and Chrome large-list workflows; 171 HTTP checks; bounded options and remote department filters; 10,001-row CSV; four 10,000-row indexed first-page plans; nine-migration legacy preservation. Mutable-sort/archive scenarios and deeper/concurrent search capacity remain open.",
       "files": "backend/src/pagination.ts; hr.ts; resources.ts; company.ts; frontend/src/saas/ui.tsx"
     },
     {
@@ -6620,14 +6584,14 @@
       "id": "SPEC-064",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Leave requests",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination verified; advanced leave/payroll policies and wider operational features are separate requirements",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-browser.mjs; existing SaaS HTTP scope suite",
+      "evidence": "21 Nov: each list has 125 isolated records traversed over seven DB pages; staff cannot view draft payroll or another identity notifications; audit staff denied; Chrome search and signed Next/Previous passed. Leave response now exposes its generated nextCursor.",
+      "files": "backend/src/hr.ts; company.ts; pagination.ts; frontend/src/Workspace.tsx; saas/WorkspaceModules.tsx"
     },
     {
       "id": "SPEC-065",
@@ -6646,27 +6610,27 @@
       "id": "SPEC-066",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Payroll",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination verified; advanced leave/payroll policies and wider operational features are separate requirements",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-browser.mjs; existing SaaS HTTP scope suite",
+      "evidence": "21 Nov: each list has 125 isolated records traversed over seven DB pages; staff cannot view draft payroll or another identity notifications; audit staff denied; Chrome search and signed Next/Previous passed. Leave response now exposes its generated nextCursor.",
+      "files": "backend/src/hr.ts; company.ts; pagination.ts; frontend/src/Workspace.tsx; saas/WorkspaceModules.tsx"
     },
     {
       "id": "SPEC-067",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Documents",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination requirement verified; advanced document/platform features remain separately tracked",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-integration.mjs; saas-browser.mjs",
+      "evidence": "21 Nov: 125-record document directory and staff visibility checks; 125-organisation Chrome directory traversal, search and signed Next/Previous; existing role/MFA/tenant API checks",
+      "files": "backend/src/resources.ts; platform.ts; pagination.ts; frontend/src/saas/WorkspaceModules.tsx; Platform.tsx"
     },
     {
       "id": "SPEC-068",
@@ -6698,53 +6662,53 @@
       "id": "SPEC-070",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Notifications",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination verified; advanced leave/payroll policies and wider operational features are separate requirements",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-browser.mjs; existing SaaS HTTP scope suite",
+      "evidence": "21 Nov: each list has 125 isolated records traversed over seven DB pages; staff cannot view draft payroll or another identity notifications; audit staff denied; Chrome search and signed Next/Previous passed. Leave response now exposes its generated nextCursor.",
+      "files": "backend/src/hr.ts; company.ts; pagination.ts; frontend/src/Workspace.tsx; saas/WorkspaceModules.tsx"
     },
     {
       "id": "SPEC-071",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Reports",
       "status": "IN_PROGRESS",
-      "existingImplementation": "Existing workflow extended in this phase",
-      "gap": "See evidence and documented limits",
+      "existingImplementation": "Attendance CSV streams cursor pages with backpressure and validates filters before CSV headers",
+      "gap": "Other reports/snapshots remain separately unfinished; mutable workforce edits are not a frozen export",
       "priority": "P1",
       "dependencies": "Relevant module",
       "coverage": "34 DB assertions; pagination units; API and Chrome; attendance benchmark",
-      "evidence": "docs/TEST_COVERAGE.md; docs/ATTENDANCE_RULES.md",
+      "evidence": "21 Nov: 10,001 employee CSV lines all unique, complete end, and client page/cursor ignored; malformed date rejected; Chrome CSV download passed",
       "files": "backend/src/attendance-calculation.ts; pagination.ts; company.ts; frontend/src/saas/ui.tsx"
     },
     {
       "id": "SPEC-072",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Audit logs",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination verified; advanced leave/payroll policies and wider operational features are separate requirements",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-browser.mjs; existing SaaS HTTP scope suite",
+      "evidence": "21 Nov: each list has 125 isolated records traversed over seven DB pages; staff cannot view draft payroll or another identity notifications; audit staff denied; Chrome search and signed Next/Previous passed. Leave response now exposes its generated nextCursor.",
+      "files": "backend/src/hr.ts; company.ts; pagination.ts; frontend/src/Workspace.tsx; saas/WorkspaceModules.tsx"
     },
     {
       "id": "SPEC-073",
       "section": "3.2 Pagination and silent truncation",
       "requirement": "Platform organisations",
-      "status": "IMPLEMENTED",
-      "existingImplementation": "Source traced to bounded pagination and scoped list handlers",
-      "gap": "Complete per-requirement large-data and concurrency verification still pending",
+      "status": "VERIFIED",
+      "existingImplementation": "Bounded scoped server pages, search, signed continuation and frontend Next/Previous controls",
+      "gap": "Pagination requirement verified; advanced document/platform features remain separately tracked",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Existing SaaS API/browser baseline; specific list acceptance pending",
-      "evidence": "Source reconciliation on 21 Nov; no inherited VERIFIED status",
-      "files": "backend/src/hr.ts; resources.ts; attendance.ts; company.ts; platform.ts; frontend/src/saas/ui.tsx"
+      "coverage": "production-attendance-test.mjs; saas-integration.mjs; saas-browser.mjs",
+      "evidence": "21 Nov: 125-record document directory and staff visibility checks; 125-organisation Chrome directory traversal, search and signed Next/Previous; existing role/MFA/tenant API checks",
+      "files": "backend/src/resources.ts; platform.ts; pagination.ts; frontend/src/saas/WorkspaceModules.tsx; Platform.tsx"
     },
     {
       "id": "SPEC-074",
@@ -7439,27 +7403,27 @@
       "id": "SPEC-127",
       "section": "4.4 Work schedules",
       "requirement": "Support overnight shifts",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Schedule creation/assignment, timezone/grace/workdays and recorded-session snapshots; versioned assignments/edit/archive absent",
-      "gap": "Requirement-specific implementation/verification remains open",
+      "status": "IN_PROGRESS",
+      "existingImplementation": "Existing overnight/timezone schedules and immutable recorded snapshots; DST wall-time construction and elapsed grace corrected on 21 Nov",
+      "gap": "Complete effective-dated assignment resolution and overnight gap choice remain open",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Core module coverage does not verify this unfinished requirement",
-      "evidence": "See docs/TEST_COVERAGE.md for the current evidence scope",
-      "files": "backend/src/hr.ts; attendance-calculation.ts; frontend/src/saas/CompanySetup.tsx"
+      "coverage": "domain.test.ts DST start/end/repeated/nonexistent times and calendar precedence; production-attendance-test.mjs SQL parity",
+      "evidence": "33 unit tests pass; six SQL transition/grace parity cases passed (264 total DB assertions); no effective-dated ledger claimed",
+      "files": "backend/src/domain.ts; attendance-calculation.ts; attendance.ts; frontend/src/saas/CompanySetup.tsx"
     },
     {
       "id": "SPEC-128",
       "section": "4.4 Work schedules",
       "requirement": "Support timezone-aware schedules",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Schedule creation/assignment, timezone/grace/workdays and recorded-session snapshots; versioned assignments/edit/archive absent",
-      "gap": "Requirement-specific implementation/verification remains open",
+      "status": "IN_PROGRESS",
+      "existingImplementation": "Existing overnight/timezone schedules and immutable recorded snapshots; DST wall-time construction and elapsed grace corrected on 21 Nov",
+      "gap": "Complete effective-dated assignment resolution and overnight gap choice remain open",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Core module coverage does not verify this unfinished requirement",
-      "evidence": "See docs/TEST_COVERAGE.md for the current evidence scope",
-      "files": "backend/src/hr.ts; attendance-calculation.ts; frontend/src/saas/CompanySetup.tsx"
+      "coverage": "domain.test.ts DST start/end/repeated/nonexistent times and calendar precedence; production-attendance-test.mjs SQL parity",
+      "evidence": "33 unit tests pass; six SQL transition/grace parity cases passed (264 total DB assertions); no effective-dated ledger claimed",
+      "files": "backend/src/domain.ts; attendance-calculation.ts; attendance.ts; frontend/src/saas/CompanySetup.tsx"
     },
     {
       "id": "SPEC-129",
