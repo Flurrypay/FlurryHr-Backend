@@ -922,6 +922,115 @@ try {
       id: { in: documentFixtures.map((item) => item.id) },
     },
   });
+  const scheduleFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    name: `${collectionPrefix} schedule ${String(i).padStart(3, "0")}`,
+    timezone: "UTC",
+    workingDays: [1, 2, 3, 4, 5],
+    startMinute: 540,
+    endMinute: 1020,
+  }));
+  const leaveTypeFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    name: `${collectionPrefix} leave type ${String(i).padStart(3, "0")}`,
+  }));
+  await db.schedule.createMany({ data: scheduleFixtures });
+  await db.leaveType.createMany({ data: leaveTypeFixtures });
+  const configurationStartupPages = [];
+  const recordConfigurationPage = (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/directory-options")
+      configurationStartupPages.push(Number(url.searchParams.get("page")));
+  };
+  owner.on("request", recordConfigurationPage);
+  const startupOptions = responseFor(
+    owner,
+    (response) =>
+      new URL(response.url()).pathname === "/api/directory-options" &&
+      response.ok(),
+  );
+  await owner.reload();
+  const configuration = await (await startupOptions).json();
+  assert.equal(configuration.schedules.length, 100);
+  assert.equal(configuration.current.schedule.timezone, "Africa/Lagos");
+  assert.ok(
+    !configuration.schedules.some(
+      (item) => item.id === configuration.current.schedule.id,
+    ),
+  );
+  await nav(owner, "Settings");
+  for (const [title, searchLabel, kind, selector, path] of [
+    [
+      "Work schedules",
+      "Search schedules",
+      "schedule",
+      ".schedule-list > div",
+      "schedules",
+    ],
+    [
+      "Leave policies",
+      "Search leave types",
+      "leave type",
+      ".policy-chips > *",
+      "leave-types",
+    ],
+  ]) {
+    const panel = owner.locator(".panel").filter({
+      has: owner.getByRole("heading", { name: title, exact: true }),
+    });
+    await panel
+      .getByLabel(searchLabel, { exact: true })
+      .fill(`${collectionPrefix} ${kind}`);
+    await expect(panel.locator(".pagination")).toContainText("125 records");
+    await expect(panel.locator(selector)).toHaveCount(20);
+    const firstRows = await panel.locator(selector).allTextContents();
+    const next = responseFor(owner, (response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === `/api/${path}` &&
+        url.searchParams.has("after") &&
+        response.ok()
+      );
+    });
+    await panel.getByRole("button", { name: "Next page", exact: true }).click();
+    await next;
+    await expect(panel.locator(".pagination")).toContainText("Page 2 of 7");
+    await expect
+      .poll(() => panel.locator(selector).allTextContents())
+      .not.toEqual(firstRows);
+    assert.equal(
+      (await panel.locator(selector).allTextContents()).filter((row) =>
+        firstRows.includes(row),
+      ).length,
+      0,
+    );
+    await panel
+      .getByRole("button", { name: "Previous page", exact: true })
+      .click();
+    await expect
+      .poll(() => panel.locator(selector).allTextContents())
+      .toEqual(firstRows);
+  }
+  assert.ok(
+    configurationStartupPages.length > 0 &&
+      configurationStartupPages.every((page) => page === 1),
+    "Startup must not traverse configuration collections",
+  );
+  owner.off("request", recordConfigurationPage);
+  await db.schedule.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: scheduleFixtures.map((item) => item.id) },
+    },
+  });
+  await db.leaveType.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: leaveTypeFixtures.map((item) => item.id) },
+    },
+  });
   await nav(owner, "Reports & Analytics");
   const downloadPromise = owner.waitForEvent("download");
   await owner.getByRole("button", { name: "Export CSV", exact: true }).click();

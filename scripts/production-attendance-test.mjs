@@ -506,6 +506,22 @@ try {
       dueDate: new Date("2026-12-01"),
     })),
   });
+  await sys.schedule.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: org,
+      name: `Bulk schedule ${i}`,
+      timezone: "UTC",
+      workingDays: [1, 2, 3, 4, 5],
+      startMinute: 540,
+      endMinute: 1020,
+    })),
+  });
+  await sys.leaveType.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: org,
+      name: `Bulk leave type ${i}`,
+    })),
+  });
   await sys.asset.createMany({
     data: Array.from({ length: 125 }, (_, i) => ({
       organizationId: org,
@@ -529,8 +545,25 @@ try {
     const hr = new HrController(db),
       resources = new ResourcesController(db),
       req = { actor };
+    const ownOptions = await hr.options({
+      actor: { ...actor, employee: people[0] },
+    });
+    check(ownOptions.schedules.length, 100);
+    check(ownOptions.departments.length, 100);
+    check(ownOptions.current.schedule.id, schedule.id);
+    check(ownOptions.current.department.id, department.id);
+    check(
+      ownOptions.schedules.some((item) => item.id === schedule.id),
+      false,
+    );
+    check(
+      ownOptions.departments.some((item) => item.id === department.id),
+      false,
+    );
     for (const load of [
       (q) => hr.departments(q),
+      (q) => hr.schedules(q),
+      (q) => hr.leaveTypes(q),
       (q) => hr.recruitment(req, q),
       (q) => hr.tasks(req, q),
       (q) => resources.assets(req, q),
@@ -698,6 +731,48 @@ try {
   });
   check(beyondOldCap.total, 10001);
   check(beyondOldCap.items.length, 1);
+  await tenantContext.run({ organizationId: org }, async () => {
+    const exported = new Set();
+    let ended = false;
+    let writes = 0;
+    const response = {
+      destroyed: false,
+      setHeader: () => {},
+      write: (line) => {
+        if (writes++ > 0) {
+          const id = line.split(",")[1].replaceAll('"', "");
+          assert.ok(!exported.has(id), "CSV must not repeat an employee");
+          exported.add(id);
+        }
+        return true;
+      },
+      end: () => {
+        ended = true;
+      },
+    };
+    await new DashboardController(db, calculation).report(
+      { actor },
+      {
+        from: "2026-11-18",
+        to: "2026-11-18",
+        after: "ignored-client-cursor",
+        page: "999",
+      },
+      response,
+    );
+    check(exported.size, 10001);
+    check(writes, 10002);
+    check(ended, true);
+    await assert.rejects(
+      new DashboardController(db, calculation).report(
+        { actor },
+        { from: ["2026-11-18"], to: "2026-11-18" },
+        response,
+      ),
+      /Choose a report range/,
+    );
+    checks++;
+  });
   const summaryFirst = await calculation.page(actor, {
     date: "2026-11-18",
     limit: "100",

@@ -79,6 +79,7 @@ model Holiday {
   @@unique([organizationId, date])
 }
 model Employee {
+  @@index([organizationId, firstName, id], map: "Employee_name_page_idx")
   organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
   organization Organization @relation(fields: [organizationId], references: [id])
   @@index([organizationId])
@@ -215,6 +216,7 @@ model Job {
   createdAt DateTime @default(now())
 }
 model Candidate {
+  @@index([organizationId, jobId, createdAt(sort: Desc), id], map: "Candidate_parent_page_idx")
   organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
   organization Organization @relation(fields: [organizationId], references: [id])
   @@index([organizationId])
@@ -424,6 +426,7 @@ model Notification {
  @@index([organizationId,userId,createdAt])
 }
 model TaskEvent {
+ @@index([organizationId, taskId, createdAt, id], map: "TaskEvent_parent_page_idx")
  id String @id @default(uuid())
  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
  organization Organization @relation(fields:[organizationId],references:[id])
@@ -464,6 +467,7 @@ model Asset {
  @@index([organizationId,employeeId])
 }
 model AssetHistory {
+ @@index([organizationId, assetId, createdAt(sort: Desc), id], map: "AssetHistory_parent_page_idx")
  id String @id @default(uuid())
  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
  organization Organization @relation(fields:[organizationId],references:[id])

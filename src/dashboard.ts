@@ -146,6 +146,8 @@ export class DashboardController {
   ) {
     permit(req.actor, PEOPLE);
     const { from, to } = q;
+    if (typeof from !== "string" || typeof to !== "string")
+      throw new BadRequestException("Choose a report range of up to 93 days");
     const zone = req.actor.organization!.timezone;
     const start = DateTime.fromISO(from || "", { zone }).startOf("day"),
       end = DateTime.fromISO(to || "", { zone }).endOf("day");
@@ -191,7 +193,7 @@ export class DashboardController {
     let rows = 0;
     for (let day = start; day <= end; day = day.plus({ days: 1 })) {
       let page = 1;
-      let total: number;
+      let after: string | null = null;
       do {
         if (res.destroyed) return;
         const result = await this.calculation.page(req.actor, {
@@ -199,8 +201,9 @@ export class DashboardController {
           date: day.toISODate()!,
           page: String(page),
           limit: "100",
+          after: after || "",
         });
-        total = result.total;
+        after = result.nextCursor;
         for (const row of result.items) {
           const line =
             [
@@ -220,7 +223,7 @@ export class DashboardController {
           rows++;
         }
         page++;
-      } while ((page - 1) * 100 < total);
+      } while (after);
     }
     await this.db.audit.create({
       data: {

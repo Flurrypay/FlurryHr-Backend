@@ -131,6 +131,16 @@ export class HrController {
       leaveTypes: leaveTypes.items,
       employees: employees.items,
       jobs: jobs.items,
+      current: req.actor.employee
+        ? {
+            department: await this.db.department.findUnique({
+              where: { id: req.actor.employee.departmentId },
+            }),
+            schedule: await this.db.schedule.findUnique({
+              where: { id: req.actor.employee.scheduleId },
+            }),
+          }
+        : null,
       pagination: {
         page: departments.page,
         limit: departments.limit,
@@ -466,6 +476,30 @@ export class HrController {
       await this.audit(tx, req.actor, "department.created", item.id);
       return item;
     });
+  }
+  @Get("schedules")
+  schedules(@Query() q: Record<string, string>) {
+    return paged(
+      this.db.schedule,
+      {
+        searchFields: ["name"],
+        filterFields: [],
+        orderBy: { name: "asc" },
+      },
+      q,
+    );
+  }
+  @Get("leave-types")
+  leaveTypes(@Query() q: Record<string, string>) {
+    return paged(
+      this.db.leaveType,
+      {
+        searchFields: ["name"],
+        filterFields: [],
+        orderBy: { name: "asc" },
+      },
+      q,
+    );
   }
   @Post("schedules")
   async schedule(@Req() req: AuthRequest, @Body() dto: D.ScheduleDto) {
