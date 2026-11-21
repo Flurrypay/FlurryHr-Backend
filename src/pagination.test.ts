@@ -177,3 +177,19 @@ test("employee word search intersects tokens across configured name fields", asy
   });
   assert.equal(received.wordSearch, undefined);
 });
+
+test("a continuation cannot be replayed against a different model with identical filters", async () => {
+  const delegate = {
+    fields: { id: { modelName: "Department" } },
+    findMany: async () => [{ id: "one", name: "First" }],
+    count: async () => 1,
+  };
+  const first = await paged(delegate, { orderBy: { name: "asc" } }, {});
+  await assert.rejects(
+    paged(
+      { ...delegate, fields: { id: { modelName: "Schedule" } } },
+      { orderBy: { name: "asc" } },
+      { after: first.nextCursor! },
+    ),
+  );
+});

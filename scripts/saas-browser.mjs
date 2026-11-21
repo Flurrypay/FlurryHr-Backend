@@ -34,6 +34,11 @@ const nav = (page, label) =>
     .click();
 const save = (page, label = "Save changes") =>
   page.getByRole("button", { name: label, exact: true }).click();
+function responseFor(page, predicate) {
+  const pending = page.waitForResponse(predicate);
+  void pending.catch(() => {}); // Preserve the original action failure while finally cleans fixtures.
+  return pending;
+}
 async function chooseOption(locator, choice) {
   await locator.click();
 
@@ -173,7 +178,7 @@ try {
   await nav(owner, "Employees");
   await expect(owner.locator("tbody tr")).toHaveCount(10);
   const firstDirectoryRows = await owner.locator("tbody tr").allTextContents();
-  const nextDirectoryResponse = owner.waitForResponse((response) => {
+  const nextDirectoryResponse = responseFor(owner, (response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith("/employees") &&
@@ -250,7 +255,7 @@ try {
   const firstSummaryRows = await summaryPanel
     .locator("tbody tr")
     .allTextContents();
-  const summaryResponse = owner.waitForResponse((response) => {
+  const summaryResponse = responseFor(owner, (response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith("/attendance/summary") &&
@@ -289,6 +294,36 @@ try {
   await expect(
     owner.getByRole("heading", { name: /Welcome back/ }),
   ).toBeVisible();
+  await nav(owner, "Departments");
+  await owner
+    .getByLabel("Search departments", { exact: true })
+    .fill("Lookup department");
+  await expect(owner.locator(".pagination").last()).toContainText(
+    "125 records",
+  );
+  await expect(owner.locator(".department-card h2")).toHaveCount(20);
+  const firstDepartmentRows = await owner
+    .locator(".department-card h2")
+    .allTextContents();
+  const nextDepartment = responseFor(owner, (response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/departments") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await owner.getByRole("button", { name: "Next page", exact: true }).click();
+  assert.ok(new URL((await nextDepartment).url()).searchParams.get("after"));
+  await expect
+    .poll(() => owner.locator(".department-card h2").allTextContents())
+    .not.toEqual(firstDepartmentRows);
+  await expect(owner.locator(".department-card h2")).toHaveCount(20);
+  assert.equal(
+    (await owner.locator(".department-card h2").allTextContents()).filter(
+      (name) => firstDepartmentRows.includes(name),
+    ).length,
+    0,
+  );
   await nav(owner, "Employees");
   await owner
     .getByRole("button", { name: "Add employee", exact: true })
@@ -319,7 +354,7 @@ try {
   await expect(
     owner.getByRole("searchbox", { name: "Search Department", exact: true }),
   ).toHaveValue("");
-  const nextLookup = owner.waitForResponse((response) => {
+  const nextLookup = responseFor(owner, (response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith("/directory-options/departments") &&
@@ -405,9 +440,26 @@ try {
   await candidateDialog
     .getByLabel("Email", { exact: true })
     .fill(`remote-candidate-${suffix}@example.test`);
-  await chooseOption(candidateDialog.getByLabel("Position", { exact: true }), {
-    label: "Paged browser position",
-  });
+  await expect(candidateDialog.locator('select[name="jobId"]')).toHaveValue("");
+  await candidateDialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(candidateDialog).toBeVisible();
+  assert.equal(
+    await db.candidate.count({
+      where: {
+        organizationId: a.organization.id,
+        email: `remote-candidate-${suffix}@example.test`,
+      },
+    }),
+    0,
+  );
+  await expect(
+    owner.getByRole("searchbox", { name: "Search Position", exact: true }),
+  ).toBeVisible();
+  await owner
+    .getByRole("option", { name: "Paged browser position", exact: true })
+    .click();
   await candidateDialog
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
@@ -425,7 +477,7 @@ try {
   await expect(
     owner.getByRole("heading", { name: "Paged browser position", exact: true }),
   ).toBeVisible();
-  const rootJobNext = owner.waitForResponse((response) => {
+  const rootJobNext = responseFor(owner, (response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith("/recruitment") &&
@@ -783,6 +835,93 @@ try {
   await expect(
     owner.getByRole("table").getByText("Completed", { exact: true }),
   ).toBeVisible();
+  const collectionPrefix = `Paged collection ${suffix}`;
+  const taskFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    employeeId: record.id,
+    title: `${collectionPrefix} task ${i}`,
+    dueDate: new Date("2026-12-01"),
+  }));
+  const assetFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    identifier: randomUUID(),
+    name: `${collectionPrefix} asset ${i}`,
+  }));
+  const documentFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    organizationId: a.organization.id,
+    employeeId: record.id,
+    name: `${collectionPrefix} document ${i}`,
+    category: "Pagination fixture",
+    storageKey: randomUUID(),
+    mime: "text/plain",
+    bytes: 1,
+    uploadedBy: "isolated-browser",
+  }));
+  await db.task.createMany({ data: taskFixtures });
+  await db.asset.createMany({ data: assetFixtures });
+  await db.document.createMany({ data: documentFixtures });
+  for (const [navigation, searchLabel, path, kind] of [
+    ["Tasks & Assignments", "Search tasks", "tasks", "task"],
+    ["Company Assets", "Search assets", "assets", "asset"],
+    ["Documents", "Search documents", "documents", "document"],
+  ]) {
+    await nav(owner, navigation);
+    await owner
+      .getByLabel(searchLabel, { exact: true })
+      .fill(`${collectionPrefix} ${kind}`);
+    const pagination = owner.locator(".pagination").last();
+    await expect(pagination).toContainText("125 records");
+    await expect(owner.locator("tbody tr")).toHaveCount(20);
+    const firstRows = await owner.locator("tbody tr").allTextContents();
+    const next = responseFor(owner, (response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/" + path) &&
+        url.searchParams.get("page") === "2"
+      );
+    });
+    await pagination
+      .getByRole("button", { name: "Next page", exact: true })
+      .click();
+    assert.ok(new URL((await next).url()).searchParams.get("after"));
+    await expect
+      .poll(() => owner.locator("tbody tr").allTextContents())
+      .not.toEqual(firstRows);
+    await expect(owner.locator("tbody tr")).toHaveCount(20);
+    assert.equal(
+      (await owner.locator("tbody tr").allTextContents()).filter((row) =>
+        firstRows.includes(row),
+      ).length,
+      0,
+    );
+    await pagination
+      .getByRole("button", { name: "Previous page", exact: true })
+      .click();
+    await expect
+      .poll(() => owner.locator("tbody tr").allTextContents())
+      .toEqual(firstRows);
+  }
+  await db.task.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: taskFixtures.map((item) => item.id) },
+    },
+  });
+  await db.asset.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: assetFixtures.map((item) => item.id) },
+    },
+  });
+  await db.document.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      id: { in: documentFixtures.map((item) => item.id) },
+    },
+  });
   await nav(owner, "Reports & Analytics");
   const downloadPromise = owner.waitForEvent("download");
   await owner.getByRole("button", { name: "Export CSV", exact: true }).click();
@@ -913,7 +1052,7 @@ try {
   const firstPlatformRows = await organisationDirectory
     .locator("tbody tr")
     .allTextContents();
-  const platformNext = platform.waitForResponse((response) => {
+  const platformNext = responseFor(platform, (response) => {
     const url = new URL(response.url());
     return (
       url.pathname.endsWith("/platform/companies") &&

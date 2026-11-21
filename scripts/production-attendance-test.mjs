@@ -41,6 +41,7 @@ try {
     },
   });
   organizations.push(organization.id);
+  check(organization.createdAt.getTime() <= Date.now() + 1000, true);
   const org = organization.id;
   const department = await sys.department.create({
     data: { organizationId: org, name: "Test" },
@@ -365,6 +366,18 @@ try {
       req = { actor };
     const jobs = await hr.recruitment(req, { search: "Paged position" });
     check(jobs.total, 1);
+    check(
+      (await hr.recruitment(req, { search: "  Paged position  " })).total,
+      1,
+    );
+    check(
+      (await hr.candidates(req, position.id, { search: " 124 " })).total,
+      1,
+    );
+    check(
+      (await hr.options(req, { search: " Day " })).pagination.totals.schedules,
+      1,
+    );
     check(jobs.items[0]._count.candidates, 125);
     check("candidates" in jobs.items[0], false);
     const ids = new Set();
@@ -430,6 +443,11 @@ try {
       1,
     );
     check((await hr.employees(req, { search: "Paged0 Fixture" })).total, 1);
+    const departmentCursor = await hr.lookup(req, "departments", {});
+    await assert.rejects(
+      hr.lookup(req, "schedules", { after: departmentCursor.nextCursor }),
+    );
+    checks++;
     const remote = await hr.lookup(req, "employees", {
       search: "Paged",
       page: "11",

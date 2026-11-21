@@ -71,11 +71,7 @@ export class HrController {
     @Query() q: Record<string, string> = {},
   ) {
     const pageQuery = { ...q, limit: q.limit ?? "100" };
-    const named = {
-      ...(q.search
-        ? { name: { contains: q.search, mode: "insensitive" as const } }
-        : {}),
-    };
+    const named = {};
     const canSeePeople =
       PEOPLE.includes(req.actor.role) || FINANCE.includes(req.actor.role);
     const [departments, schedules, leaveTypes, employees, jobs] =
@@ -92,12 +88,12 @@ export class HrController {
         ),
         paged(
           this.db.schedule,
-          { where: named, orderBy: { name: "asc" } },
+          { searchFields: ["name"], where: named, orderBy: { name: "asc" } },
           pageQuery,
         ),
         paged(
           this.db.leaveType,
-          { where: named, orderBy: { name: "asc" } },
+          { searchFields: ["name"], where: named, orderBy: { name: "asc" } },
           pageQuery,
         ),
         canSeePeople
@@ -121,9 +117,7 @@ export class HrController {
           ? paged(
               this.db.job,
               {
-                where: q.search
-                  ? { title: { contains: q.search, mode: "insensitive" } }
-                  : {},
+                searchFields: ["title"],
                 select: { id: true, title: true },
                 orderBy: { title: "asc" },
               },
@@ -755,12 +749,8 @@ export class HrController {
       this.db.job,
       {
         include: { _count: { select: { candidates: true } } },
-        where: {
-          ...(q.search
-            ? { title: { contains: q.search, mode: "insensitive" } }
-            : {}),
-          ...(q.status ? { status: q.status } : {}),
-        },
+        searchFields: ["title"],
+        filterFields: ["status"],
         orderBy: { createdAt: "desc" },
       },
       q,
@@ -778,17 +768,9 @@ export class HrController {
     return paged(
       this.db.candidate,
       {
-        where: {
-          jobId: id,
-          ...(q.stage ? { stage: q.stage } : {}),
-          ...(q.search
-            ? {
-                OR: ["name", "email"].map((field) => ({
-                  [field]: { contains: q.search, mode: "insensitive" },
-                })),
-              }
-            : {}),
-        },
+        where: { jobId: id },
+        searchFields: ["name", "email"],
+        filterFields: ["stage"],
         orderBy: { createdAt: "desc" },
       },
       q,

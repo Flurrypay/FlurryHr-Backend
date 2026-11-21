@@ -56,6 +56,47 @@ for (const [prefix, count] of [
       ids.has(`${prefix}-${String(i).padStart(3, "0")}`),
       `Missing ${prefix}-${i}`,
     );
+const directive = await fs.readFile(
+  new URL("../docs/PRODUCTION_DIRECTIVE.md", import.meta.url),
+  "utf8",
+);
+const normalize = (value) =>
+  value
+    .replaceAll("**", "")
+    .replaceAll("`", "")
+    .replaceAll("&#124;", "|")
+    .trim();
+const lines = directive.split("\n");
+const bullets = lines.flatMap((line) => {
+  const match = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+  return match ? [match[1]] : [];
+});
+assert.equal(
+  bullets.length,
+  645,
+  "Original directive bullet inventory changed; reconcile without replacing original IDs",
+);
+for (let index = 0; index < 645; index++) {
+  const id = `SPEC-${String(index + 1).padStart(3, "0")}`;
+  assert.equal(
+    normalize(rows.find((row) => row.id === id).requirement),
+    normalize(bullets[index]),
+    `Original description changed: ${id}`,
+  );
+}
+const paragraphs = lines.filter(
+  (line) => line.trim() && !/^\s*(?:#|---|[-*]\s|\d+\.\s)/.test(line),
+);
+let paragraphIndex = 0;
+for (let index = 1; index <= 212; index++) {
+  const id = `PROSE-${String(index).padStart(3, "0")}`,
+    expected = normalize(rows.find((row) => row.id === id).requirement);
+  const found = paragraphs.findIndex(
+    (line, i) => i >= paragraphIndex && normalize(line) === expected,
+  );
+  assert.ok(found >= 0, `Original directive paragraph not found: ${id}`);
+  paragraphIndex = found + 1;
+}
 const groups = Object.groupBy(rows, (r) => r.section);
 const duplicates = Object.values(
   Object.groupBy(
@@ -124,6 +165,7 @@ const inventory = {
   description:
     "All original IDs retained. Section groups are parent-child navigation, duplicate descriptions remain independent acceptance entries. Source/test reconciliation is ongoing; statuses are never inferred from another row.",
   statuses,
+  sourceDescriptionsVerified: { spec: 645, prose: 212 },
   total: rows.length,
   duplicateDescriptions: duplicates,
   implementationQueue: queue,

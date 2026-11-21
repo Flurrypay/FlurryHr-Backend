@@ -122,6 +122,7 @@ export class AttendanceCalculation {
     if (query.status && !attendanceStatuses.includes(query.status))
       throw new BadRequestException("Unknown attendance status");
     const cursorScope = JSON.stringify([
+      "attendance-summary",
       companyId(actor),
       actor.role,
       actor.employee?.id,

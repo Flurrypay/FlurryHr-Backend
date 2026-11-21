@@ -7,6 +7,7 @@
     "VERIFIED": 89,
     "BLOCKED": 7
   },
+  "sourceDescriptionsVerified": { "spec": 645, "prose": 212 },
   "total": 872,
   "duplicateDescriptions": [
     ["SPEC-024", "SPEC-509"],

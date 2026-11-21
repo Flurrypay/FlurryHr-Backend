@@ -79,6 +79,7 @@ export function pagination(query: Record<string, string>, defaultLimit = 20) {
 }
 export async function paged<T>(
   delegate: {
+    fields?: { id?: { modelName?: string } };
     findMany: (args: any) => Promise<T[]>;
     count: (args: any) => PromiseLike<unknown>;
   },
@@ -127,9 +128,13 @@ export async function paged<T>(
       : [];
   const order = [...ordering, { id: "asc" }];
   const countWhere = args.where;
+  const model =
+    (delegate as typeof delegate & { fields?: { id?: { modelName?: string } } })
+      .fields?.id?.modelName || "custom-list";
   const fingerprint = createHash("sha256")
     .update(
       JSON.stringify({
+        model,
         organizationId: tenantContext.getStore()?.organizationId,
         where: countWhere,
         order,
