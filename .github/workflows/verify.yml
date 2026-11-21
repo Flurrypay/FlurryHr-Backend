@@ -1,0 +1,130 @@
+name: Verify FlurryHR
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated_ci_only
+          POSTGRES_DB: flurryhr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:isolated_ci_only@127.0.0.1:5432/flurryhr_test
+      NODE_ENV: test
+      MAIL_TRANSPORT: file
+      MAIL_ENCRYPTION_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
+      TEST_MAIL_DIR: /tmp/flurryhr-saas-mail
+      DOCUMENT_STORAGE_DIR: /tmp/flurryhr-saas-documents
+      WEB_ORIGIN: http://localhost:5175
+      PORT: 4002
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: Exercise a non-UTC database timezone
+        run: psql -d flurryhr_test -c "ALTER DATABASE flurryhr_test SET timezone TO 'Africa/Lagos'"
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: isolated_ci_only
+      - run: npm run db:generate
+        working-directory: backend
+      - run: npm run db:migrate
+        working-directory: backend
+      - run: npm run check:requirements && npm run lint && npm run typecheck && npm test && npm run build
+        working-directory: backend
+      - run: node scripts/production-attendance-test.mjs
+        working-directory: backend
+      - run: npm run test:mail-queue
+        working-directory: backend
+      - name: Create isolated migration and restore databases
+        run: |
+          createdb flurryhr_migration_test_ci
+          createdb flurryhr_restore_test_ci
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: isolated_ci_only
+      - run: npm run test:migration
+        working-directory: backend
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgresql://postgres:isolated_ci_only@127.0.0.1:5432/flurryhr_migration_test_ci
+      - run: npm run test:backup-restore
+        working-directory: backend
+        env:
+          RESTORE_TEST_SOURCE_URL: postgresql://postgres:isolated_ci_only@127.0.0.1:5432/flurryhr_migration_test_ci
+          RESTORE_TEST_TARGET_URL: postgresql://postgres:isolated_ci_only@127.0.0.1:5432/flurryhr_restore_test_ci
+      - name: Start isolated services
+        run: |
+          npm --prefix backend start > /tmp/flurryhr-api.log 2>&1 &
+          node --input-type=module <<'JS'
+          for (let attempt=0;attempt<60;attempt++) {
+            try {
+              const api=await fetch('http://127.0.0.1:4002/api/health');
+              if(api.ok) process.exit(0);
+            } catch {}
+            await new Promise(resolve=>setTimeout(resolve,500));
+          }
+          process.exit(1);
+          JS
+      - run: npm run test:saas
+        working-directory: backend
+      - name: Check out the matching frontend for connected browser tests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.FRONTEND_REPOSITORY || 'Flurrypay/FlurryHr-Frontend' }}
+          ref: ${{ vars.FRONTEND_REF || 'main' }}
+          token: ${{ secrets.FRONTEND_READ_TOKEN || github.token }}
+          path: frontend
+      - run: npm ci && npm run lint && npm run typecheck && npm run build
+        working-directory: frontend
+        env:
+          NODE_ENV: development
+      - run: npx playwright install --with-deps chrome
+        working-directory: backend
+      - name: Start connected frontend
+        run: |
+          API_PROXY_TARGET=http://127.0.0.1:4002 npm --prefix frontend run dev -- --port 5175 > /tmp/flurryhr-web.log 2>&1 &
+          node --input-type=module <<'JS'
+          for(let i=0;i<60;i++) {
+            try { if((await fetch('http://localhost:5175')).ok) process.exit(0); } catch {}
+            await new Promise(resolve=>setTimeout(resolve,500));
+          }
+          process.exit(1);
+          JS
+      - name: Restart API to isolate authentication rate limits
+        run: |
+          kill $(lsof -t -iTCP:4002 -sTCP:LISTEN)
+          npm --prefix backend start > /tmp/flurryhr-api.log 2>&1 &
+          node --input-type=module <<'JS'
+          for(let i=0;i<40;i++) {
+            try { if((await fetch('http://127.0.0.1:4002/api/health')).ok) process.exit(0); } catch {}
+            await new Promise(resolve=>setTimeout(resolve,250));
+          }
+          process.exit(1);
+          JS
+      - run: npm run test:saas:browser
+        working-directory: backend

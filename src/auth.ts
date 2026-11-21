@@ -42,6 +42,7 @@ export type Actor = Omit<User, "role"> & {
   organization: Organization | null;
   membership: Membership | null;
   sessionId: string;
+  sessionMfaVerifiedAt: Date | null;
 };
 export type AuthRequest = Request & { actor: Actor };
 export const digest = (token: string) =>
@@ -100,6 +101,7 @@ export class IdentityGuard implements CanActivate {
       organization: membership?.organization || null,
       membership,
       sessionId: session.id,
+      sessionMfaVerifiedAt: session.mfaVerifiedAt,
     };
     return true;
   }
@@ -129,6 +131,13 @@ export class AuthGuard extends IdentityGuard {
     return true;
   }
 }
+export function platformMfaSatisfied(actor: Actor) {
+  return (
+    !!actor.mfaSecretEncrypted &&
+    !!actor.sessionMfaVerifiedAt &&
+    actor.sessionMfaVerifiedAt.getTime() > Date.now() - 30 * 60000
+  );
+}
 @Injectable()
 export class PlatformGuard extends IdentityGuard {
   async canActivate(ctx: ExecutionContext) {
@@ -136,6 +145,8 @@ export class PlatformGuard extends IdentityGuard {
     const actor = ctx.switchToHttp().getRequest<AuthRequest>().actor;
     if (!actor.platformAdmin || !actor.emailVerifiedAt)
       throw new ForbiddenException("Platform administrator access required");
+    if (!platformMfaSatisfied(actor))
+      throw new ForbiddenException("Complete platform MFA verification");
     return true;
   }
 }
@@ -163,7 +174,11 @@ export async function accountView(db: Db, userId: string, sessionId?: string) {
     : null;
   const next =
     user.platformAdmin && !selected
-      ? "/platform"
+      ? !user.mfaSecretEncrypted ||
+        !session?.mfaVerifiedAt ||
+        session.mfaVerifiedAt.getTime() < Date.now() - 30 * 60000
+        ? "/platform-security"
+        : "/platform"
       : !user.emailVerifiedAt
         ? "/verify-email"
         : !selected
@@ -183,6 +198,7 @@ export async function accountView(db: Db, userId: string, sessionId?: string) {
       selected?.role || (user.platformAdmin ? "PLATFORM_ADMIN" : "EMPLOYEE"),
     employee,
     platformAdmin: user.platformAdmin,
+    mfaEnrolled: !!user.mfaSecretEncrypted,
     emailVerified: !!user.emailVerifiedAt,
     organization: selected?.organization || null,
     membershipId: selected?.id || null,

@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+const { totp } = createRequire(import.meta.url)("../dist/src/totp.js");
 import { chromium, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { hash } from "bcryptjs";
@@ -33,6 +36,7 @@ const save = (page, label = "Save changes") =>
   page.getByRole("button", { name: label, exact: true }).click();
 async function chooseOption(locator, choice) {
   await locator.click();
+
   const page = locator.page();
   if (typeof choice === "object")
     await page.getByRole("option", { name: choice.label, exact: true }).click();
@@ -123,13 +127,361 @@ try {
   await expect(
     owner.getByRole("heading", { name: /Welcome back/ }),
   ).toBeVisible();
+  const directorySchedule = await db.schedule.findFirstOrThrow({
+    where: { organizationId: a.organization.id },
+  });
+  const directoryDepartment = await db.department.findFirstOrThrow({
+    where: { organizationId: a.organization.id },
+  });
+  const paginationDomain = `@${suffix}.pagination.example.test`;
+  await db.employee.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: a.organization.id,
+      firstName: `Zzz page ${i}`,
+      lastName: "Fixture",
+      email: `employee-${i}${paginationDomain}`,
+      jobTitle: "Pagination fixture",
+      joinedAt: new Date("2026-01-01"),
+      departmentId: directoryDepartment.id,
+      scheduleId: directorySchedule.id,
+    })),
+  });
+  const dummyEmployees = await db.employee.findMany({
+    where: {
+      organizationId: a.organization.id,
+      email: { endsWith: paginationDomain },
+    },
+    orderBy: [{ firstName: "asc" }, { id: "asc" }],
+  });
+  const farManager = dummyEmployees.at(-1),
+    editFixture = dummyEmployees[0];
+  await db.employee.update({
+    where: { id: editFixture.id },
+    data: { managerId: farManager.id },
+  });
+  const lookupPages = [];
+  const recordLookupPage = (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("/directory-options"))
+      lookupPages.push(Number(url.searchParams.get("page")));
+  };
+  owner.on("request", recordLookupPage);
+  await owner.reload();
+  await expect(
+    owner.getByRole("heading", { name: /Welcome back/ }),
+  ).toBeVisible();
+  await nav(owner, "Employees");
+  await expect(owner.locator("tbody tr")).toHaveCount(10);
+  const firstDirectoryRows = await owner.locator("tbody tr").allTextContents();
+  const nextDirectoryResponse = owner.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/employees") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await owner.getByRole("button", { name: "Next page", exact: true }).click();
+  assert.ok(
+    new URL((await nextDirectoryResponse).url()).searchParams.get("after"),
+  );
+  await expect
+    .poll(() => owner.locator("tbody tr").allTextContents())
+    .not.toEqual(firstDirectoryRows);
+  await expect(owner.locator("tbody tr")).toHaveCount(10);
+  assert.equal(
+    (await owner.locator("tbody tr").allTextContents()).filter((row) =>
+      firstDirectoryRows.includes(row),
+    ).length,
+    0,
+  );
+  await owner
+    .getByRole("button", { name: "Previous page", exact: true })
+    .click();
+  await expect
+    .poll(() => owner.locator("tbody tr").allTextContents())
+    .toEqual(firstDirectoryRows);
+  await expect.poll(() => lookupPages.length).toBeGreaterThan(0);
+  assert.ok(
+    lookupPages.every((page) => page === 1),
+    "Workspace startup must not traverse the employee roster",
+  );
+  owner.off("request", recordLookupPage);
+  await owner
+    .getByLabel("Search directory", { exact: true })
+    .fill(editFixture.email);
+  await expect(owner.locator("tbody tr")).toHaveCount(1);
+  await owner.locator(".table-person").click();
+  await owner
+    .getByRole("dialog")
+    .getByRole("button", { name: "Edit employee", exact: true })
+    .click();
+  const editDialog = owner.getByRole("dialog");
+  await expect(
+    editDialog.getByLabel("Reporting manager", { exact: true }),
+  ).toHaveText(`${farManager.firstName} ${farManager.lastName}`);
+  await expect(editDialog.locator('select[name="managerId"]')).toHaveValue(
+    farManager.id,
+  );
+  await editDialog
+    .getByLabel("Job title", { exact: true })
+    .fill("Edited pagination fixture");
+  await editDialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(owner.getByRole("dialog")).toHaveCount(0);
+  assert.equal(
+    (await db.employee.findUniqueOrThrow({ where: { id: editFixture.id } }))
+      .managerId,
+    farManager.id,
+  );
+  await owner.getByLabel("Search directory", { exact: true }).fill("");
+
+  await nav(owner, "Attendance");
+  const summaryPanel = owner
+    .locator(".panel")
+    .filter({
+      has: owner.getByRole("heading", {
+        name: "Daily attendance summary",
+        exact: true,
+      }),
+    })
+    .last();
+  await expect(summaryPanel.locator("tbody tr")).toHaveCount(20);
+  const firstSummaryRows = await summaryPanel
+    .locator("tbody tr")
+    .allTextContents();
+  const summaryResponse = owner.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/attendance/summary") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await owner
+    .getByRole("button", { name: "Next summary page", exact: true })
+    .click();
+  assert.ok(new URL((await summaryResponse).url()).searchParams.get("after"));
+  await expect
+    .poll(() => summaryPanel.locator("tbody tr").allTextContents())
+    .not.toEqual(firstSummaryRows);
+  await expect(summaryPanel.locator("tbody tr")).toHaveCount(20);
+
+  await db.employee.updateMany({
+    where: {
+      organizationId: a.organization.id,
+      email: { endsWith: paginationDomain },
+    },
+    data: { managerId: null },
+  });
+  await db.employee.deleteMany({
+    where: {
+      organizationId: a.organization.id,
+      email: { endsWith: paginationDomain },
+    },
+  });
+  await db.department.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: a.organization.id,
+      name: `Lookup department ${String(i).padStart(3, "0")}`,
+    })),
+  });
+  await owner.reload();
+  await expect(
+    owner.getByRole("heading", { name: /Welcome back/ }),
+  ).toBeVisible();
+  await nav(owner, "Employees");
+  await owner
+    .getByRole("button", { name: "Add employee", exact: true })
+    .click();
+  await owner
+    .getByRole("dialog")
+    .getByLabel("Department", { exact: true })
+    .click();
+  await owner
+    .getByRole("searchbox", { name: "Search Department", exact: true })
+    .fill("Lookup department 124");
+  await owner
+    .getByRole("option", { name: "Lookup department 124", exact: true })
+    .click();
+  await expect(
+    owner.getByRole("dialog").getByLabel("Department", { exact: true }),
+  ).toHaveText("Lookup department 124");
+  const lookupDepartment = await db.department.findFirstOrThrow({
+    where: { organizationId: a.organization.id, name: "Lookup department 124" },
+  });
+  await expect(
+    owner.getByRole("dialog").locator('select[name="departmentId"]'),
+  ).toHaveValue(lookupDepartment.id);
+  await owner
+    .getByRole("dialog")
+    .getByLabel("Department", { exact: true })
+    .click();
+  await expect(
+    owner.getByRole("searchbox", { name: "Search Department", exact: true }),
+  ).toHaveValue("");
+  const nextLookup = owner.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/directory-options/departments") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await owner
+    .getByRole("button", { name: "Load more options", exact: true })
+    .click();
+  assert.ok(new URL((await nextLookup).url()).searchParams.get("after"));
+  await expect(
+    owner.getByRole("option", { name: "Lookup department 075", exact: true }),
+  ).toBeVisible();
+  await owner
+    .getByRole("searchbox", { name: "Search Department", exact: true })
+    .press("Escape");
+  await expect(owner.getByRole("dialog")).toBeVisible();
+  await expect(owner.getByRole("listbox")).toHaveCount(0);
+  await owner
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  const pagedJob = await db.job.create({
+    data: {
+      organizationId: a.organization.id,
+      title: "Paged browser position",
+      department: "Engineering",
+      description: "Nested pagination fixture",
+    },
+  });
+  await db.candidate.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: a.organization.id,
+      jobId: pagedJob.id,
+      name: `Browser candidate ${String(i).padStart(3, "0")}`,
+      email: `browser-candidate-${i}@example.test`,
+    })),
+  });
+  await db.job.createMany({
+    data: Array.from({ length: 21 }, (_, i) => ({
+      organizationId: a.organization.id,
+      title: `Bulk browser position ${i}`,
+      department: "Engineering",
+      description: "Isolated parent-page fixture",
+      createdAt: new Date("2026-01-01"),
+    })),
+  });
+  const candidateFetches = [];
+  const trackCandidates = (request) => {
+    if (/\/jobs\/[^/]+\/candidates$/.test(new URL(request.url()).pathname))
+      candidateFetches.push(request.url());
+  };
+  owner.on("request", trackCandidates);
+  await nav(owner, "Recruitment");
+  await expect(owner.getByText(/125 candidates/)).toBeVisible();
+  assert.equal(
+    candidateFetches.length,
+    0,
+    "Closed candidate lists must not issue per-job requests",
+  );
+  await owner.getByText("View candidates", { exact: true }).click();
+  await expect(owner.locator("tbody tr")).toHaveCount(20);
+  await owner
+    .getByRole("button", { name: "Next page", exact: true })
+    .first()
+    .click();
+  await expect(owner.getByText("Page 2 of 7", { exact: false })).toBeVisible();
+  await owner
+    .getByLabel("Search candidates", { exact: true })
+    .fill("Browser candidate 124");
+  await expect(owner.locator("tbody tr")).toHaveCount(1);
+  await expect(
+    owner.getByRole("cell", { name: /Browser candidate 124/ }),
+  ).toBeVisible();
+  owner.off("request", trackCandidates);
+  await owner
+    .getByRole("button", { name: "Add candidate", exact: true })
+    .click();
+  const candidateDialog = owner.getByRole("dialog");
+  await candidateDialog
+    .getByLabel("Full name", { exact: true })
+    .fill("Remote position candidate");
+  await candidateDialog
+    .getByLabel("Email", { exact: true })
+    .fill(`remote-candidate-${suffix}@example.test`);
+  await chooseOption(candidateDialog.getByLabel("Position", { exact: true }), {
+    label: "Paged browser position",
+  });
+  await candidateDialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(owner.getByRole("dialog")).toHaveCount(0);
+  assert.equal(
+    await db.candidate.count({
+      where: {
+        organizationId: a.organization.id,
+        jobId: pagedJob.id,
+        email: `remote-candidate-${suffix}@example.test`,
+      },
+    }),
+    1,
+  );
+  await expect(
+    owner.getByRole("heading", { name: "Paged browser position", exact: true }),
+  ).toBeVisible();
+  const rootJobNext = owner.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/recruitment") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await owner
+    .locator(".pagination")
+    .last()
+    .getByRole("button", { name: "Next page", exact: true })
+    .click();
+  assert.ok(new URL((await rootJobNext).url()).searchParams.get("after"));
+  await expect(
+    owner.getByRole("heading", { name: /Bulk browser position/ }),
+  ).toHaveCount(2);
+  await owner
+    .locator(".pagination")
+    .last()
+    .getByRole("button", { name: "Previous page", exact: true })
+    .click();
+  await expect(
+    owner.getByRole("heading", { name: "Paged browser position", exact: true }),
+  ).toBeVisible();
   await nav(owner, "Invitations");
   await expect(
     owner.getByRole("cell", { name: employeeEmail, exact: true }).first(),
   ).toBeVisible();
   await expect(
-    owner.getByRole("cell", { name: "Pending", exact: true }).first(),
+    owner.getByRole("cell", { name: "Awaiting response", exact: true }).first(),
   ).toBeVisible();
+  const historyInvitation = await db.invitation.findFirstOrThrow({
+    where: { organizationId: a.organization.id, email: employeeEmail },
+  });
+  await db.mailJob.createMany({
+    data: Array.from({ length: 125 }, () => ({
+      organizationId: a.organization.id,
+      referenceId: historyInvitation.id,
+      to: employeeEmail,
+      subject: "Isolated sending-history fixture",
+      body: "[Isolated fixture]",
+      status: "Accepted",
+      createdAt: new Date("2026-01-01"),
+    })),
+  });
+  await owner.locator("summary").filter({ hasText: "Sending history" }).click();
+  const sendingHistory = owner.locator("details").filter({
+    has: owner.locator("summary").filter({ hasText: "Sending history" }),
+  });
+  await expect(sendingHistory.locator("li")).toHaveCount(5);
+  await sendingHistory
+    .getByRole("button", { name: "Next page", exact: true })
+    .click();
+  await expect(
+    sendingHistory.getByText("Page 2 of 26", { exact: false }),
+  ).toBeVisible();
+  await sendingHistory.locator("summary").click();
   const invitationToken = await testMailToken(employeeEmail, a.companyName);
   const employeeContext = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -222,7 +574,9 @@ try {
   await expect(owner.getByRole("dialog")).toHaveCount(0);
   await employee.reload();
   await nav(employee, "Leave Management");
-  await expect(employee.getByText("Approved", { exact: true })).toBeVisible();
+  await expect(
+    employee.getByRole("table").getByText("Approved", { exact: true }),
+  ).toBeVisible();
   await nav(owner, "Tasks & Assignments");
   await owner
     .getByRole("button", { name: "Assign a task", exact: true })
@@ -244,6 +598,21 @@ try {
     .click();
   await expect(owner.getByRole("dialog")).toHaveCount(0);
   await employee.reload();
+  const historyTask = await db.task.findFirstOrThrow({
+    where: {
+      organizationId: a.organization.id,
+      title: "Complete your first handover",
+    },
+  });
+  await db.taskEvent.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: a.organization.id,
+      taskId: historyTask.id,
+      actorId: "isolated-browser",
+      status: "To Do",
+      note: `History fixture ${i}`,
+    })),
+  });
   await nav(employee, "Tasks & Assignments");
   await employee
     .getByRole("button", { name: "Progress & history", exact: true })
@@ -255,6 +624,9 @@ try {
   await dialog
     .getByRole("button", { name: "Add progress note", exact: true })
     .click();
+  await expect(dialog.locator(".saas-simple-list li")).toHaveCount(20);
+  await dialog.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(dialog.getByText("Page 2 of 7", { exact: false })).toBeVisible();
   await dialog
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
@@ -270,7 +642,26 @@ try {
     owner.getByLabel("Status for Complete your first handover", {
       exact: true,
     }),
-  ).toHaveValue("Completed");
+  ).toHaveText("Completed");
+  await owner
+    .getByLabel("Search tasks", { exact: true })
+    .fill("No matching handover");
+  await expect(owner.getByText("Room to focus", { exact: true })).toBeVisible();
+  await owner.getByLabel("Search tasks", { exact: true }).fill("");
+  await chooseOption(
+    owner.getByLabel("Filter tasks status", { exact: true }),
+    "To Do",
+  );
+  await expect(owner.getByText("Room to focus", { exact: true })).toBeVisible();
+  await chooseOption(
+    owner.getByLabel("Filter tasks status", { exact: true }),
+    "Completed",
+  );
+  await expect(
+    owner.getByLabel("Status for Complete your first handover", {
+      exact: true,
+    }),
+  ).toHaveText("Completed");
   await nav(owner, "Documents");
   await owner
     .getByRole("button", { name: "Upload document", exact: true })
@@ -329,6 +720,29 @@ try {
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(owner.getByRole("dialog")).toHaveCount(0);
+  const historyAsset = await db.asset.findFirstOrThrow({
+    where: {
+      organizationId: a.organization.id,
+      identifier: `LAPTOP-${suffix}`,
+    },
+  });
+  await db.assetHistory.createMany({
+    data: Array.from({ length: 125 }, (_, i) => ({
+      organizationId: a.organization.id,
+      assetId: historyAsset.id,
+      actorId: "isolated-browser",
+      action: "Inspected",
+      reason: `History fixture ${i}`,
+    })),
+  });
+  await owner.getByRole("button", { name: "History", exact: true }).click();
+  dialog = owner.getByRole("dialog");
+  await expect(dialog.locator(".saas-simple-list li")).toHaveCount(20);
+  await dialog.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(dialog.getByText("Page 2 of 7", { exact: false })).toBeVisible();
+  await dialog
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
   await nav(owner, "Performance");
   await owner.getByRole("button", { name: "Assign goal", exact: true }).click();
   dialog = owner.getByRole("dialog");
@@ -366,7 +780,9 @@ try {
     .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(owner.getByRole("dialog")).toHaveCount(0);
-  await expect(owner.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(
+    owner.getByRole("table").getByText("Completed", { exact: true }),
+  ).toBeVisible();
   await nav(owner, "Reports & Analytics");
   const downloadPromise = owner.waitForEvent("download");
   await owner.getByRole("button", { name: "Export CSV", exact: true }).click();
@@ -378,6 +794,7 @@ try {
       viewport: { width: 1440, height: 1000 },
     }),
     ownerB = await bContext.newPage();
+  ownerB.on("pageerror", (error) => errors.push(error.message));
   await register(ownerB, "B");
   await ownerB
     .getByRole("button", {
@@ -427,6 +844,15 @@ try {
     fullPage: true,
     animations: "disabled",
   });
+  const platformFixtures = Array.from({ length: 125 }, (_, i) => ({
+    id: randomUUID(),
+    name: `Browser directory ${suffix} ${i}`,
+    slug: randomUUID(),
+    businessEmail: `directory-${i}@example.test`,
+    status: "Active",
+  }));
+  await db.organization.createMany({ data: platformFixtures });
+  organizations.push(...platformFixtures.map((org) => org.id));
   const platformEmail = `browser-platform-${suffix}@example.test`;
   const platformUser = await db.user.create({
     data: {
@@ -441,11 +867,73 @@ try {
       viewport: { width: 1440, height: 1050 },
     }),
     platform = await platformContext.newPage();
+  platform.on("pageerror", (error) => errors.push(error.message));
   await login(platform, platformEmail);
+  await expect(platform).toHaveURL(/\/platform-security$/);
+  await platform
+    .getByLabel("Platform password", { exact: true })
+    .fill(password);
+  await platform
+    .getByRole("button", { name: "Set up authenticator", exact: true })
+    .click();
+  const secret = await platform.locator("code").first().textContent();
+  await platform
+    .getByLabel("Platform password", { exact: true })
+    .fill(password);
+  await platform
+    .getByLabel("Authenticator or recovery code", { exact: true })
+    .fill(totp(secret));
+  await platform
+    .getByRole("button", { name: "Confirm authenticator", exact: true })
+    .click();
+  await expect(platform.locator("li code")).toHaveCount(10);
+  await platform
+    .getByRole("button", { name: "I saved my recovery codes", exact: true })
+    .click();
   await expect(platform).toHaveURL(/\/platform$/);
   await expect(
     platform.getByRole("heading", { name: "Companies, connected." }),
   ).toBeVisible();
+  const organisationDirectory = platform
+    .locator(".panel")
+    .filter({
+      has: platform.getByRole("heading", {
+        name: "Organisation directory",
+        exact: true,
+      }),
+    })
+    .last();
+  await platform
+    .getByLabel("Search companies", { exact: true })
+    .fill(`Browser directory ${suffix}`);
+  await expect(organisationDirectory.locator("tbody tr").first()).toContainText(
+    `Browser directory ${suffix}`,
+  );
+  await expect(organisationDirectory.locator("tbody tr")).toHaveCount(20);
+  const firstPlatformRows = await organisationDirectory
+    .locator("tbody tr")
+    .allTextContents();
+  const platformNext = platform.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/platform/companies") &&
+      url.searchParams.get("page") === "2"
+    );
+  });
+  await organisationDirectory
+    .getByRole("button", { name: "Next page", exact: true })
+    .click();
+  assert.ok(new URL((await platformNext).url()).searchParams.get("after"));
+  await expect
+    .poll(() => organisationDirectory.locator("tbody tr").allTextContents())
+    .not.toEqual(firstPlatformRows);
+  await expect(organisationDirectory.locator("tbody tr")).toHaveCount(20);
+  await organisationDirectory
+    .getByRole("button", { name: "Previous page", exact: true })
+    .click();
+  await expect
+    .poll(() => organisationDirectory.locator("tbody tr").allTextContents())
+    .toEqual(firstPlatformRows);
   await platform
     .getByLabel("Search companies", { exact: true })
     .fill(a.companyName);
@@ -514,9 +1002,38 @@ try {
   await expect(owner.getByRole("dialog")).toHaveCount(0);
   await login(employee, employeeEmail);
   await expect(employee).toHaveURL(/\/workspace$/);
+  await employee.setViewportSize({ width: 1440, height: 1050 });
+  await nav(employee, "My Profile");
+  await employee.getByLabel("Current password", { exact: true }).fill(password);
+  await employee
+    .getByLabel("New password", { exact: true })
+    .fill(password + "Changed");
+  await employee
+    .getByLabel("Confirm new password", { exact: true })
+    .fill(password + "Changed");
+  await employee
+    .getByRole("button", { name: "Change password", exact: true })
+    .click();
+  await expect(
+    employee.getByText(
+      "Password changed. Other devices have been signed out.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await employee
+    .getByRole("button", { name: "Sign out all devices", exact: true })
+    .click();
+  dialog = employee.getByRole("dialog");
+  await dialog
+    .getByLabel("Current password", { exact: true })
+    .fill(password + "Changed");
+  await dialog
+    .getByRole("button", { name: "Confirm sign-out", exact: true })
+    .click();
+  await expect(employee).toHaveURL(/\/login$/);
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: Chrome connected SaaS journeys A–G — public registration, test-mail verification, resumable company onboarding, invitation and acceptance, employee login and clock-in/out, company monitoring, leave notification/approval, task notes/completion, private upload/report download, second-company isolation, aggregate-only platform suspension/reactivation and mobile employee layout.",
+    "PASS: Chrome exercised SaaS workflows including bounded roster startup, remote selectors, collection/history cursors and filters — public registration, test-mail verification, resumable company onboarding, invitation and acceptance, employee login and clock-in/out, company monitoring, leave notification/approval, task notes/completion, private upload/report download, second-company isolation, aggregate-only platform suspension/reactivation mobile employee layout, platform MFA enrollment/recovery-code display and employee password change/all-device sign-out.",
   );
 } finally {
   await browser.close();

@@ -87,6 +87,9 @@ try {
   assert.equal(membership.role, "SUPER_ADMIN");
   assert.equal(membership.employeeId, eid);
   assert.equal(session.membershipId, membership.id);
+  assert.equal(attendance.snapshotSource, "Legacy inferred at migration");
+  assert.ok(attendance.workDate);
+  assert.equal(attendance.scheduleSnapshot.timezone, "Africa/Lagos");
   assert.equal(attendance.clockIn.toISOString(), before.clockIn.toISOString());
   assert.equal(
     attendance.clockOut.toISOString(),

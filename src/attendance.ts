@@ -1,3 +1,4 @@
+import { paged } from "./pagination";
 import {
   Controller,
   Get,
@@ -16,6 +17,8 @@ import {
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { Db } from "./db";
+import { AttendanceCalculation } from "./attendance-calculation";
+import { WorkSchedule } from "./domain";
 import {
   AuthGuard,
   AuthRequest,
@@ -24,33 +27,36 @@ import {
   companyId,
   digest,
 } from "./auth";
-import {
-  PEOPLE,
-  ADMIN,
-  arrivalStatus,
-  currentShift,
-  dayAttendanceStatus,
-  shiftWindow,
-} from "./domain";
+import { PEOPLE, ADMIN, arrivalStatus, currentShift } from "./domain";
 import { notifyEmployee, notifyReviewers } from "./notifications";
 import { CorrectionDto, DecisionDto } from "./dto";
 @Controller("attendance")
 @UseGuards(AuthGuard)
 export class AttendanceController {
-  constructor(@Inject(Db) private db: Db) {}
+  constructor(
+    @Inject(Db) private db: Db,
+    @Inject(AttendanceCalculation) private calculation: AttendanceCalculation,
+  ) {}
   @Get("mine")
-  async mine(@Req() req: AuthRequest) {
+  async mine(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     const employeeId = ownEmployee(req.actor);
-    const [active, history] = await Promise.all([
+    const [active, result] = await Promise.all([
       this.db.attendance.findFirst({ where: { employeeId, clockOut: null } }),
-      this.db.attendance.findMany({
-        where: { employeeId },
-        orderBy: { clockIn: "desc" },
-        take: 30,
-        include: { corrections: true },
-      }),
+      paged(
+        this.db.attendance,
+        { where: { employeeId }, orderBy: { clockIn: "desc" } },
+        q,
+      ),
     ]);
-    return { active, history, serverTime: new Date().toISOString() };
+    return {
+      active,
+      history: result.items,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      nextCursor: result.nextCursor,
+      serverTime: new Date().toISOString(),
+    };
   }
   @Post("clock-in")
   async clockIn(@Req() req: AuthRequest) {
@@ -148,112 +154,9 @@ export class AttendanceController {
   @Get("summary")
   async summary(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, PEOPLE);
-    const date =
-      q.date ||
-      DateTime.now().setZone(req.actor.organization!.timezone).toISODate()!;
-    if (!DateTime.fromISO(date).isValid)
-      throw new BadRequestException("Choose a valid date");
-    const employees = await this.db.employee.findMany({
-      where: {
-        status: "Active",
-        joinedAt: { lte: new Date(date + "T23:59:59Z") },
-        ...(q.department ? { departmentId: q.department } : {}),
-        ...(q.employee ? { id: q.employee } : {}),
-        ...(req.actor.role === "MANAGER"
-          ? {
-              OR: [
-                { managerId: ownEmployee(req.actor) },
-                { id: ownEmployee(req.actor) },
-              ],
-            }
-          : {}),
-      },
-      include: { schedule: true, department: true },
-      orderBy: { firstName: "asc" },
-      take: 10000,
-    });
-    const ids = employees.map((e) => e.id);
-    const [records, leaves, holiday] = await Promise.all([
-      this.db.attendance.findMany({
-        where: {
-          employeeId: { in: ids },
-          clockIn: {
-            gte: DateTime.fromISO(date, { zone: "UTC" })
-              .minus({ days: 1 })
-              .toJSDate(),
-            lte: DateTime.fromISO(date, { zone: "UTC" })
-              .plus({ days: 2 })
-              .toJSDate(),
-          },
-        },
-        orderBy: { clockIn: "asc" },
-      }),
-      this.db.leaveRequest.findMany({
-        where: {
-          employeeId: { in: ids },
-          status: "Approved",
-          startDate: { lte: date },
-          endDate: { gte: date },
-        },
-      }),
-      this.db.holiday.findFirst({ where: { date } }),
-    ]);
-    const byEmployee = new Map<string, typeof records>();
-    for (const record of records) {
-      const list = byEmployee.get(record.employeeId) || [];
-      list.push(record);
-      byEmployee.set(record.employeeId, list);
-    }
-    const rows = employees.map((employee) => {
-      const shift = shiftWindow(date, employee.schedule),
-        sessions = (byEmployee.get(employee.id) || []).filter(
-          (s) =>
-            s.clockIn >= shift.day.toJSDate() &&
-            s.clockIn <= shift.end.toJSDate(),
-        );
-      return {
-        employee: {
-          id: employee.id,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          jobTitle: employee.jobTitle,
-          department: employee.department.name,
-        },
-        status: dayAttendanceStatus(
-          date,
-          employee.schedule,
-          sessions,
-          leaves.some((l) => l.employeeId === employee.id),
-          !!holiday,
-        ),
-        clockIn: sessions[0]?.clockIn || null,
-        clockOut:
-          sessions.length && sessions.every((s) => s.clockOut)
-            ? sessions[sessions.length - 1].clockOut
-            : null,
-        recordedMinutes: sessions.reduce(
-          (sum, s) =>
-            sum +
-            (s.clockOut
-              ? Math.floor((s.clockOut.getTime() - s.clockIn.getTime()) / 60000)
-              : 0),
-          0,
-        ),
-        timezone: employee.schedule.timezone,
-      };
-    });
-    const filtered = q.status
-        ? rows.filter((row) => row.status === q.status)
-        : rows,
-      page = Math.max(1, Math.floor(Number(q.page) || 1)),
-      limit = 20;
-    return {
-      items: filtered.slice((page - 1) * limit, page * limit),
-      total: filtered.length,
-      page,
-      limit,
-    };
+    return this.calculation.page(req.actor, q);
   }
+
   @Get()
   async list(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, PEOPLE);
@@ -275,8 +178,6 @@ export class AttendanceController {
     if (!day.isValid) throw new BadRequestException("Invalid date");
     const start = day.startOf("day").toJSDate(),
       end = day.endOf("day").toJSDate();
-    const page = Math.max(1, Number(q.page) || 1),
-      limit = 20;
     const where: Prisma.AttendanceWhereInput = {
       employee: employeeWhere,
       ...(q.employee ? { employeeId: q.employee } : {}),
@@ -284,55 +185,55 @@ export class AttendanceController {
       clockIn: { lte: end },
       OR: [{ clockOut: { gte: start } }, { clockOut: null }],
     };
-    const [items, total] = await Promise.all([
-      this.db.attendance.findMany({
+    return paged(
+      this.db.attendance,
+      {
         where,
-        include: {
-          employee: { include: { department: true } },
-          corrections: true,
-        },
+        include: { employee: { include: { department: true } } },
         orderBy: { clockIn: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.db.attendance.count({ where }),
-    ]);
-    return { items, total, page, limit };
+      },
+      q,
+    );
   }
   @Get("corrections")
-  corrections(@Req() req: AuthRequest) {
-    return this.db.correction.findMany({
-      where: {
-        attendance: {
-          employee: ADMIN.includes(req.actor.role)
-            ? {}
-            : req.actor.role === "MANAGER"
-              ? {
-                  OR: [
-                    { managerId: ownEmployee(req.actor) },
-                    { id: ownEmployee(req.actor) },
-                  ],
-                }
-              : { id: ownEmployee(req.actor) },
+  corrections(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
+    return paged(
+      this.db.correction,
+      {
+        searchFields: ["reason"],
+        filterFields: ["status"],
+        where: {
+          attendance: {
+            employee: ADMIN.includes(req.actor.role)
+              ? {}
+              : req.actor.role === "MANAGER"
+                ? {
+                    OR: [
+                      { managerId: ownEmployee(req.actor) },
+                      { id: ownEmployee(req.actor) },
+                    ],
+                  }
+                : { id: ownEmployee(req.actor) },
+          },
         },
-      },
-      include: {
-        attendance: {
-          include: {
-            employee: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                managerId: true,
+        include: {
+          attendance: {
+            include: {
+              employee: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  managerId: true,
+                },
               },
             },
           },
         },
+        orderBy: { createdAt: "desc" },
       },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+      q,
+    );
   }
   @Post("corrections")
   async correction(@Req() req: AuthRequest, @Body() dto: CorrectionDto) {
@@ -440,7 +341,11 @@ export class AttendanceController {
           data: {
             clockIn: item.requestedIn,
             clockOut: item.requestedOut,
-            status: arrivalStatus(item.requestedIn, employee.schedule),
+            status: arrivalStatus(
+              item.requestedIn,
+              (item.attendance.scheduleSnapshot as unknown as WorkSchedule) ||
+                employee.schedule,
+            ),
           },
         });
       }

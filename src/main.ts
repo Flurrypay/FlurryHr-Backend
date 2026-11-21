@@ -1,5 +1,8 @@
 import "reflect-metadata";
 import "dotenv/config";
+import { MfaController } from "./mfa";
+import { AccountSecurityController } from "./account-security";
+import { AttendanceCalculation } from "./attendance-calculation";
 import {
   Module,
   ValidationPipe,
@@ -63,6 +66,8 @@ class Errors implements ExceptionFilter {
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 180 }])],
   controllers: [
+    MfaController,
+    AccountSecurityController,
     AuthController,
     HrController,
     AttendanceController,
@@ -75,6 +80,7 @@ class Errors implements ExceptionFilter {
   ],
   providers: [
     Db,
+    AttendanceCalculation,
     AuthGuard,
     IdentityGuard,
     PlatformGuard,

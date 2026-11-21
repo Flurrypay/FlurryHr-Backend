@@ -22,7 +22,13 @@
     "platform:provision": "node scripts/provision-platform.mjs",
     "test:saas": "node scripts/saas-integration.mjs",
     "test:saas:browser": "node scripts/saas-browser.mjs",
-    "test:migration": "node scripts/migration-test.mjs"
+    "test:migration": "node scripts/migration-test.mjs",
+    "test:production-attendance": "node scripts/production-attendance-test.mjs",
+    "benchmark:attendance": "node scripts/attendance-benchmark.mjs",
+    "db:backup": "node scripts/backup-local.mjs",
+    "test:backup-restore": "node scripts/backup-restore-test.mjs",
+    "test:mail-queue": "node scripts/mail-queue-test.mjs",
+    "check:requirements": "node scripts/checklist-inventory.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

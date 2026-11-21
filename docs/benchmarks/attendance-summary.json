@@ -1,0 +1,150 @@
+{
+  "generatedAt": "2026-11-20T08:38:35.194Z",
+  "node": "v24.21.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "cpu": "Apple M1 Pro",
+  "memoryBytes": 17179869184,
+  "postgres": "16, local isolated cluster; one process, sequential query workloads",
+  "scope": "Attendance summary only. Client RSS/CPU are not API-server or database resource metrics. Five baseline samples and twenty optimized samples; quantiles are sample order statistics, not a production SLO or concurrent load test. Fixtures are not production records.",
+  "results": [
+    {
+      "employees": 10,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 1.2215830000000096,
+        "p95Ms": 1.7275829999999814,
+        "p99Ms": 1.7275829999999814,
+        "errorRate": 0,
+        "clientCpuMs": 5.664,
+        "clientRssBytes": 103743488,
+        "throughputPerSecond": 759.2630471382267
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 0.6362500000000182,
+        "p95Ms": 1.295332999999971,
+        "p99Ms": 1.3876670000000217,
+        "errorRate": 0,
+        "clientCpuMs": 7.683,
+        "clientRssBytes": 103858176,
+        "throughputPerSecond": 1283.5700910455505
+      }
+    },
+    {
+      "employees": 100,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 3.718582999999967,
+        "p95Ms": 4.344667000000072,
+        "p99Ms": 4.344667000000072,
+        "errorRate": 0,
+        "clientCpuMs": 20.822,
+        "clientRssBytes": 110460928,
+        "throughputPerSecond": 257.93305347596925
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 1.151124999999979,
+        "p95Ms": 1.3530419999999594,
+        "p99Ms": 1.5500829999999723,
+        "errorRate": 0,
+        "clientCpuMs": 7.63,
+        "clientRssBytes": 110772224,
+        "throughputPerSecond": 858.5348733216916
+      }
+    },
+    {
+      "employees": 500,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 18.585458000000017,
+        "p95Ms": 24.617958000000044,
+        "p99Ms": 24.617958000000044,
+        "errorRate": 0,
+        "clientCpuMs": 113.365,
+        "clientRssBytes": 138641408,
+        "throughputPerSecond": 50.938218827409514
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 3.183999999999969,
+        "p95Ms": 3.446374999999989,
+        "p99Ms": 3.8509169999999813,
+        "errorRate": 0,
+        "clientCpuMs": 11.372,
+        "clientRssBytes": 139657216,
+        "throughputPerSecond": 311.58533152227545
+      }
+    },
+    {
+      "employees": 1000,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 41.02037500000006,
+        "p95Ms": 55.08804199999997,
+        "p99Ms": 55.08804199999997,
+        "errorRate": 0,
+        "clientCpuMs": 231.23,
+        "clientRssBytes": 172163072,
+        "throughputPerSecond": 23.038143572383756
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 5.073040999999876,
+        "p95Ms": 5.299125000000004,
+        "p99Ms": 5.377375000000029,
+        "errorRate": 0,
+        "clientCpuMs": 10.052,
+        "clientRssBytes": 169967616,
+        "throughputPerSecond": 198.0382705195056
+      }
+    },
+    {
+      "employees": 5000,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 452.5716250000005,
+        "p95Ms": 490.81129199999987,
+        "p99Ms": 490.81129199999987,
+        "errorRate": 0,
+        "clientCpuMs": 2225.735,
+        "clientRssBytes": 361365504,
+        "throughputPerSecond": 2.2907269638879644
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 22.23658399999931,
+        "p95Ms": 24.03241699999944,
+        "p99Ms": 24.043125000000146,
+        "errorRate": 0,
+        "clientCpuMs": 12.508,
+        "clientRssBytes": 361381888,
+        "throughputPerSecond": 44.45739043653959
+      }
+    },
+    {
+      "employees": 10000,
+      "baseline": {
+        "samples": 5,
+        "p50Ms": 1694.392167,
+        "p95Ms": 1789.9261669999996,
+        "p99Ms": 1789.9261669999996,
+        "errorRate": 0,
+        "clientCpuMs": 8045.524,
+        "clientRssBytes": 509263872,
+        "throughputPerSecond": 0.6334902373736178
+      },
+      "optimized": {
+        "samples": 20,
+        "p50Ms": 48.7455829999999,
+        "p95Ms": 51.45387500000106,
+        "p99Ms": 52.61816699999872,
+        "errorRate": 0,
+        "clientCpuMs": 14.152,
+        "clientRssBytes": 492306432,
+        "throughputPerSecond": 20.547161521258236
+      }
+    }
+  ]
+}

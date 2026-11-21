@@ -1,8 +1,11 @@
+import { createRequire } from "node:module";
+const { totp } = createRequire(import.meta.url)("../dist/src/totp.js");
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
-import { hash } from "bcryptjs";
+import { hash, compare } from "bcryptjs";
+import { randomBytes, createHash } from "node:crypto";
 const db = new PrismaClient();
 if (
   !/^\/flurryhr_test(?:_[a-z0-9]+)*$/i.test(
@@ -16,6 +19,7 @@ const base = process.env.TEST_API_URL || "http://127.0.0.1:4002/api",
   mailDir = process.env.TEST_MAIL_DIR || "/tmp/flurryhr-saas-mail";
 const suffix = Date.now().toString(),
   password = "SaaS-Integration-Password-2026!";
+let responseChecks = 0;
 const organizations = [],
   users = [];
 async function call(
@@ -43,6 +47,31 @@ async function call(
     (Array.isArray(status) ? status : [status]).includes(response.status),
     `${method} ${route}: ${response.status} ${text}`,
   );
+  responseChecks++;
+  const collectionRoutes = new Set([
+    "departments",
+    "announcements",
+    "recruitment",
+    "onboarding",
+    "tasks",
+    "audit",
+    "documents",
+    "assets",
+    "performance",
+    "performance/team",
+    "attendance/corrections",
+    "notifications",
+    "holidays",
+    "mail",
+    "payroll",
+  ]);
+  if (
+    method === "GET" &&
+    (collectionRoutes.has(route.split("?")[0]) ||
+      /^(tasks|assets)\/[^/]+\/history$/.test(route.split("?")[0])) &&
+    body?.items
+  )
+    body = body.items;
   return {
     body,
     cookie: response.headers.get("set-cookie")?.split(";")[0],
@@ -149,6 +178,21 @@ try {
   );
   const a = await company("A"),
     b = await company("B");
+  const prohibitedEmail = `privilege-attempt-${suffix}@example.test`;
+  await call("auth/register", {
+    method: "POST",
+    status: 400,
+    data: {
+      fullName: "Privilege attempt",
+      email: prohibitedEmail,
+      password,
+      companyName: "Privilege attempt",
+      country: "NG",
+      platformAdmin: true,
+    },
+  });
+  assert.equal(await db.user.count({ where: { email: prohibitedEmail } }), 0);
+
   await call("auth/register", {
     method: "POST",
     status: 400,
@@ -691,6 +735,43 @@ try {
       },
     })
   ).body;
+  const ownerEmployee = await db.employee.findFirstOrThrow({
+    where: { organizationId: a.organization.id, userId: a.id },
+  });
+  const fullNameQuery = encodeURIComponent(
+    `${ownerEmployee.firstName} ${ownerEmployee.lastName}`,
+  );
+  assert.ok(
+    (
+      await call(`directory-options/employees?search=${fullNameQuery}`, {
+        cookie: a.cookie,
+      })
+    ).body.items.some((item) => item.id === ownerEmployee.id),
+  );
+  assert.ok(
+    (
+      await call(`directory-options?search=${fullNameQuery}`, {
+        cookie: a.cookie,
+      })
+    ).body.employees.some((item) => item.id === ownerEmployee.id),
+  );
+  const employeeLookup = (
+    await call("directory-options/employees?search=", { cookie: a.cookie })
+  ).body;
+  assert.ok(employeeLookup.total > 0);
+  await call("directory-options/employees", { cookie: e.cookie, status: 403 });
+  await call("directory-options/not-real", { cookie: a.cookie, status: 400 });
+  const candidatePage = (
+    await call(`jobs/${job.id}/candidates?search=Hired`, { cookie: a.cookie })
+  ).body;
+  assert.equal(candidatePage.total, 1);
+  assert.equal(candidatePage.items[0].id, candidate.id);
+  await call(`jobs/${job.id}/candidates`, { cookie: e.cookie, status: 403 });
+  await call(`jobs/${job.id}/candidates`, { cookie: b.cookie, status: 404 });
+  await call(`jobs/${job.id}/candidates?limit=101`, {
+    cookie: a.cookie,
+    status: 400,
+  });
   await call(`candidates/${candidate.id}/convert`, {
     cookie: a.cookie,
     method: "POST",
@@ -882,6 +963,93 @@ try {
       data: { email: platformEmail, password },
     })
   ).cookie;
+  await call("platform/overview", { cookie: platformCookie, status: 403 });
+  await call("auth/mfa/enroll", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 403,
+    data: { currentPassword: password },
+  });
+  const enrollment = (
+    await call("auth/mfa/enroll", {
+      cookie: platformCookie,
+      method: "POST",
+      status: 201,
+      data: { currentPassword: password },
+    })
+  ).body;
+  assert.ok(enrollment.secret && !enrollment.secret.includes("."));
+  await call("auth/mfa/confirm", {
+    cookie: platformCookie,
+    method: "POST",
+    status: 400,
+    data: { currentPassword: password, code: "abcdef" },
+  });
+  const enrollmentCode = totp(enrollment.secret);
+  const confirmation = (
+    await call("auth/mfa/confirm", {
+      cookie: platformCookie,
+      method: "POST",
+      status: 201,
+      data: { currentPassword: password, code: enrollmentCode },
+    })
+  ).body;
+  assert.equal(confirmation.recoveryCodes.length, 10);
+  assert.ok(
+    (await db.user.findUniqueOrThrow({ where: { id: platform.id } }))
+      .mfaSecretEncrypted !== enrollment.secret,
+  );
+  const storedCodes = await db.mfaRecoveryCode.findMany({
+    where: { userId: platform.id },
+  });
+  assert.ok(
+    storedCodes.every(
+      (stored) => !confirmation.recoveryCodes.includes(stored.hash),
+    ),
+  );
+  await call("auth/mfa/verify", {
+    cookie: platformCookie,
+    method: "POST",
+    status: 400,
+    data: { currentPassword: password, code: enrollmentCode },
+  });
+  await call("auth/mfa/verify", {
+    cookie: platformCookie,
+    method: "POST",
+    status: 201,
+    data: { currentPassword: password, code: confirmation.recoveryCodes[0] },
+  });
+  await call("auth/mfa/verify", {
+    cookie: platformCookie,
+    method: "POST",
+    status: 400,
+    data: { currentPassword: password, code: confirmation.recoveryCodes[0] },
+  });
+  const platformSessionId = (
+    await call("account/sessions", { cookie: platformCookie })
+  ).body.items.find((item) => item.current).id;
+  await db.session.update({
+    where: { id: platformSessionId },
+    data: { mfaVerifiedAt: new Date(Date.now() - 31 * 60000) },
+  });
+  await call("platform/overview", { cookie: platformCookie, status: 403 });
+  const recoveryRace = await Promise.all(
+    [0, 1].map(() =>
+      call("auth/mfa/verify", {
+        cookie: platformCookie,
+        method: "POST",
+        status: [201, 400],
+        data: {
+          currentPassword: password,
+          code: confirmation.recoveryCodes[1],
+        },
+      }),
+    ),
+  );
+  assert.deepEqual(
+    recoveryRace.map((result) => result.response.status).sort(),
+    [201, 400],
+  );
   const directory = (
     await call("platform/companies", { cookie: platformCookie })
   ).body;
@@ -919,8 +1087,170 @@ try {
     }),
     2,
   );
+  await call("auth/mfa/reset", {
+    cookie: platformCookie,
+    method: "POST",
+    status: 201,
+    data: { currentPassword: password, code: confirmation.recoveryCodes[2] },
+  });
+  await call("platform/overview", { cookie: platformCookie, status: 403 });
+  assert.equal(
+    await db.mfaRecoveryCode.count({ where: { userId: platform.id } }),
+    0,
+  );
+  assert.equal(
+    (await call("auth/me", { cookie: platformCookie })).body.next,
+    "/platform-security",
+  );
+  const mfaEvents = await db.platformAudit.findMany({
+    where: { actorId: platform.id },
+  });
+  for (const action of [
+    "mfa.enabled",
+    "mfa.failed",
+    "mfa.recovery_used",
+    "mfa.reset",
+  ])
+    assert.ok(mfaEvents.some((event) => event.action === action));
+  assert.ok(!JSON.stringify(mfaEvents).includes(enrollment.secret));
+  // Migrated SUPER_ADMIN memberships are legacy company owners, not platform
+  // identities; another HR/owner must not offboard or demote that owner.
+  await db.membership.update({
+    where: { id: a.membershipId },
+    data: { role: "SUPER_ADMIN" },
+  });
+  try {
+    await db.membership.update({
+      where: { id: manager.membershipId },
+      data: { role: "HR_ADMIN" },
+    });
+    await call(`employees/${a.employee.id}/status`, {
+      cookie: manager.cookie,
+      method: "PATCH",
+      status: 403,
+      data: {
+        status: "Inactive",
+        reason: "Isolated last-owner protection check",
+        exitDate: new Date().toISOString().slice(0, 10),
+      },
+    });
+    assert.equal(
+      (await db.employee.findUniqueOrThrow({ where: { id: a.employee.id } }))
+        .status,
+      "Active",
+    );
+    assert.equal(
+      (await db.membership.findUniqueOrThrow({ where: { id: a.membershipId } }))
+        .active,
+      true,
+    );
+    await db.membership.update({
+      where: { id: manager.membershipId },
+      data: { role: "OWNER" },
+    });
+    await call(`employees/${a.employee.id}/role`, {
+      cookie: manager.cookie,
+      method: "PATCH",
+      status: 403,
+      data: { role: "EMPLOYEE" },
+    });
+    assert.equal(
+      (await db.membership.findUniqueOrThrow({ where: { id: a.membershipId } }))
+        .role,
+      "SUPER_ADMIN",
+    );
+  } finally {
+    await db.membership.update({
+      where: { id: a.membershipId },
+      data: { role: "OWNER" },
+    });
+    await db.membership.update({
+      where: { id: manager.membershipId },
+      data: { role: "MANAGER" },
+    });
+  }
+  // Account security uses the same global identity/session store, without
+  // creating extra login requests that would exhaust shared auth rate limits.
+  const extraToken = randomBytes(32).toString("hex"),
+    extraId = createHash("sha256").update(extraToken).digest("hex");
+  await db.session.create({
+    data: {
+      id: extraId,
+      userId: a.id,
+      membershipId: a.membershipId,
+      expiresAt: new Date(Date.now() + 3600000),
+    },
+  });
+  const ownSessions = (await call("account/sessions", { cookie: a.cookie }))
+    .body;
+  assert.ok(ownSessions.items.some((item) => item.id === extraId));
+  assert.ok(ownSessions.items.some((item) => item.current));
+  await call(`account/sessions/${extraId}/revoke`, {
+    cookie: b.cookie,
+    method: "POST",
+    status: 400,
+    data: { currentPassword: password },
+  });
+  assert.ok(await db.session.findUnique({ where: { id: extraId } }));
+  await call("account/sessions/revoke-others", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 403,
+    data: { currentPassword: "incorrect" },
+  });
+  await call("account/sessions/revoke-others", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 201,
+    data: { currentPassword: password },
+  });
+  await call("auth/me", {
+    cookie: `flurry_session=${extraToken}`,
+    status: 401,
+  });
+  const staleReset = randomBytes(32).toString("hex");
+  await db.accountToken.create({
+    data: {
+      userId: a.id,
+      kind: "Reset",
+      hash: createHash("sha256").update(staleReset).digest("hex"),
+      expiresAt: new Date(Date.now() + 3600000),
+    },
+  });
+  await call("account/password", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 403,
+    data: { currentPassword: "incorrect", newPassword: password + "Security" },
+  });
+  await call("account/password", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 201,
+    data: { currentPassword: password, newPassword: password + "Security" },
+  });
+  assert.ok(
+    await compare(
+      password + "Security",
+      (await db.user.findUniqueOrThrow({ where: { id: a.id } })).passwordHash,
+    ),
+  );
+  await call("auth/reset-password", {
+    method: "POST",
+    status: 400,
+    data: { token: staleReset, password: password + "Overwrite" },
+  });
+  await call("auth/me", { cookie: a.cookie });
+  await call("account/sessions/sign-out-all", {
+    cookie: a.cookie,
+    method: "POST",
+    status: 201,
+    data: { currentPassword: password + "Security" },
+  });
+  await call("auth/me", { cookie: a.cookie, status: 401 });
+  console.log(`HTTP response checks passed: ${responseChecks}`);
   console.log(
-    "PASS: connected SaaS API/database journeys — two companies; verification and single-use tokens; onboarding; invitation identity/revoke/expiry/resend; membership switching; concurrent attendance and correction; leave reserve/approval/reversal and notifications; task history; private files; asset integrity; performance; payroll/export isolation; reset/session revocation; aggregate-only platform suspension/reactivation. No real email sent.",
+    "PASS: connected SaaS API/database journeys — two companies; verification and single-use tokens; onboarding; invitation identity/revoke/expiry/resend; membership switching; concurrent attendance and correction; leave reserve/approval/reversal and notifications; task history; private files; asset integrity; performance; payroll/export isolation; reset/session revocation; aggregate-only platform suspension/reactivation; password/session security; mandatory platform MFA enrollment, replay denial, concurrent recovery-code consumption, expiry, reset and audited failures. No real email sent.",
   );
 } finally {
   for (const organizationId of organizations) {

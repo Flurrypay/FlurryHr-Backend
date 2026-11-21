@@ -1,3 +1,4 @@
+import { paged, pagination } from "./pagination";
 import {
   Controller,
   Get,
@@ -65,63 +66,185 @@ export class HrController {
         : { id: ownEmployee(actor) };
   }
   @Get("directory-options")
-  async options(@Req() req: AuthRequest) {
-    const [departments, schedules, leaveTypes, employees] = await Promise.all([
-      this.db.department.findMany({ orderBy: { name: "asc" } }),
-      this.db.schedule.findMany(),
-      this.db.leaveType.findMany(),
-      PEOPLE.includes(req.actor.role) || FINANCE.includes(req.actor.role)
-        ? this.db.employee.findMany({
-            where:
-              req.actor.role === "FINANCE"
-                ? { status: "Active" }
-                : this.scope(req.actor),
-            select: { id: true, firstName: true, lastName: true },
-          })
-        : Promise.resolve([]),
-    ]);
-    return { departments, schedules, leaveTypes, employees };
+  async options(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string> = {},
+  ) {
+    const pageQuery = { ...q, limit: q.limit ?? "100" };
+    const named = {
+      ...(q.search
+        ? { name: { contains: q.search, mode: "insensitive" as const } }
+        : {}),
+    };
+    const canSeePeople =
+      PEOPLE.includes(req.actor.role) || FINANCE.includes(req.actor.role);
+    const [departments, schedules, leaveTypes, employees, jobs] =
+      await Promise.all([
+        paged(
+          this.db.department,
+          {
+            searchFields: ["name"],
+            filterFields: [],
+            where: named,
+            orderBy: { name: "asc" },
+          },
+          pageQuery,
+        ),
+        paged(
+          this.db.schedule,
+          { where: named, orderBy: { name: "asc" } },
+          pageQuery,
+        ),
+        paged(
+          this.db.leaveType,
+          { where: named, orderBy: { name: "asc" } },
+          pageQuery,
+        ),
+        canSeePeople
+          ? paged(
+              this.db.employee,
+              {
+                searchFields: ["firstName", "lastName", "email"],
+                wordSearch: true,
+                filterFields: ["status", "departmentId"],
+                where:
+                  req.actor.role === "FINANCE"
+                    ? { status: "Active" }
+                    : this.scope(req.actor),
+                select: { id: true, firstName: true, lastName: true },
+                orderBy: { firstName: "asc" },
+              },
+              pageQuery,
+            )
+          : Promise.resolve({ items: [], total: 0, ...pagination(pageQuery) }),
+        ADMIN.includes(req.actor.role)
+          ? paged(
+              this.db.job,
+              {
+                where: q.search
+                  ? { title: { contains: q.search, mode: "insensitive" } }
+                  : {},
+                select: { id: true, title: true },
+                orderBy: { title: "asc" },
+              },
+              pageQuery,
+            )
+          : Promise.resolve({ items: [], total: 0, ...pagination(pageQuery) }),
+      ]);
+    return {
+      departments: departments.items,
+      schedules: schedules.items,
+      leaveTypes: leaveTypes.items,
+      employees: employees.items,
+      jobs: jobs.items,
+      pagination: {
+        page: departments.page,
+        limit: departments.limit,
+        totals: {
+          departments: departments.total,
+          schedules: schedules.total,
+          leaveTypes: leaveTypes.total,
+          employees: employees.total,
+          jobs: jobs.total,
+        },
+      },
+    };
+  }
+  @Get("directory-options/:kind")
+  async lookup(
+    @Req() req: AuthRequest,
+    @Param("kind") kind: string,
+    @Query() q: Record<string, string>,
+  ) {
+    if (kind === "employees") {
+      permit(req.actor, [...PEOPLE, ...FINANCE]);
+      return paged(
+        this.db.employee,
+        {
+          searchFields: ["firstName", "lastName", "email"],
+          wordSearch: true,
+          filterFields: ["id"],
+          where:
+            req.actor.role === "FINANCE"
+              ? { status: "Active" }
+              : this.scope(req.actor),
+          select: { id: true, firstName: true, lastName: true },
+          orderBy: { firstName: "asc" },
+        },
+        q,
+      );
+    }
+    if (kind === "jobs") {
+      permit(req.actor, ADMIN);
+      return paged(
+        this.db.job,
+        {
+          searchFields: ["title"],
+          filterFields: ["id"],
+          select: { id: true, title: true },
+          orderBy: { title: "asc" },
+        },
+        q,
+      );
+    }
+    if (kind === "departments")
+      return paged(
+        this.db.department,
+        {
+          searchFields: ["name"],
+          filterFields: ["id"],
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        },
+        q,
+      );
+    if (kind === "schedules")
+      return paged(
+        this.db.schedule,
+        {
+          searchFields: ["name"],
+          filterFields: ["id"],
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        },
+        q,
+      );
+    if (kind === "leaveTypes")
+      return paged(
+        this.db.leaveType,
+        {
+          searchFields: ["name"],
+          filterFields: ["id"],
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        },
+        q,
+      );
+    throw new BadRequestException("Unknown directory option type");
   }
   @Get("employees")
   async employees(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, PEOPLE);
-    const page = Math.max(1, Number(q.page) || 1),
-      limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
-    const where: Prisma.EmployeeWhereInput = {
-      AND: [
-        this.scope(req.actor),
-        ...(q.search
-          ? [
-              {
-                OR: ["firstName", "lastName", "email", "jobTitle"].map(
-                  (key) => ({
-                    [key]: {
-                      contains: q.search.slice(0, 100),
-                      mode: "insensitive",
-                    },
-                  }),
-                ),
-              },
-            ]
-          : []),
-      ],
-      ...(q.department ? { departmentId: q.department } : {}),
-      ...(q.status ? { status: q.status } : {}),
-    };
-    const [items, total] = await Promise.all([
-      this.db.employee.findMany({
-        where,
+    return paged(
+      this.db.employee,
+      {
+        where: {
+          AND: [
+            this.scope(req.actor),
+            ...(q.department ? [{ departmentId: q.department }] : []),
+          ],
+        },
+        searchFields: ["firstName", "lastName", "email", "jobTitle"],
+        wordSearch: true,
+        filterFields: ["status"],
         include: employeeInclude,
         orderBy:
           q.sort === "name"
             ? { firstName: q.direction === "desc" ? "desc" : "asc" }
             : { createdAt: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.db.employee.count({ where }),
-    ]);
-    return { items, total, page, limit };
+      },
+      { ...q, limit: q.limit ?? "10" },
+    );
   }
   @Get("employees/:id")
   async employee(@Req() req: AuthRequest, @Param("id") id: string) {
@@ -259,7 +382,7 @@ export class HrController {
             organizationId: companyId(req.actor),
           },
         });
-        if (member?.role === "OWNER")
+        if (member && ["OWNER", "SUPER_ADMIN"].includes(member.role))
           throw new ForbiddenException(
             "Transfer company ownership before offboarding the owner",
           );
@@ -317,7 +440,7 @@ export class HrController {
           organizationId: companyId(req.actor),
         },
       });
-      if (!member || member.role === "OWNER")
+      if (!member || ["OWNER", "SUPER_ADMIN"].includes(member.role))
         throw new ForbiddenException("This membership cannot be changed");
       await tx.membership.update({
         where: { id: member.id },
@@ -329,11 +452,17 @@ export class HrController {
     });
   }
   @Get("departments")
-  departments() {
-    return this.db.department.findMany({
-      include: { _count: { select: { employees: true } } },
-      orderBy: { name: "asc" },
-    });
+  departments(@Query() q: Record<string, string>) {
+    return paged(
+      this.db.department,
+      {
+        searchFields: ["name"],
+        filterFields: [],
+        include: { _count: { select: { employees: true } } },
+        orderBy: { name: "asc" },
+      },
+      q,
+    );
   }
   @Post("departments")
   async department(@Req() req: AuthRequest, @Body() dto: D.NameDto) {
@@ -368,18 +497,23 @@ export class HrController {
     });
   }
   @Get("leave")
-  async leave(@Req() req: AuthRequest) {
+  async leave(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     const scope = this.scope(req.actor);
-    const [requests, allocations] = await Promise.all([
-      this.db.leaveRequest.findMany({
-        where: { employee: scope },
-        include: {
-          employee: { select: { id: true, firstName: true, lastName: true } },
-          leaveType: true,
+    const [requestsPage, allocations] = await Promise.all([
+      paged(
+        this.db.leaveRequest,
+        {
+          searchFields: ["reason"],
+          filterFields: ["status", "employeeId", "leaveTypeId"],
+          where: { employee: scope },
+          include: {
+            employee: { select: { id: true, firstName: true, lastName: true } },
+            leaveType: true,
+          },
+          orderBy: { createdAt: "desc" },
         },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
+        q,
+      ),
       this.db.leaveAllocation.findMany({
         where: {
           employeeId: ownEmployee(req.actor),
@@ -402,7 +536,13 @@ export class HrController {
         return { ...a, remaining: a.days - (used._sum.days || 0) };
       }),
     );
-    return { requests, balances };
+    return {
+      requests: requestsPage.items,
+      balances,
+      total: requestsPage.total,
+      page: requestsPage.page,
+      limit: requestsPage.limit,
+    };
   }
   @Post("leave/allocations")
   async allocate(@Req() req: AuthRequest, @Body() dto: D.AllocationDto) {
@@ -575,11 +715,16 @@ export class HrController {
     });
   }
   @Get("announcements")
-  announcements() {
-    return this.db.announcement.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 30,
-    });
+  announcements(@Query() q: Record<string, string>) {
+    return paged(
+      this.db.announcement,
+      {
+        searchFields: ["title", "body"],
+        filterFields: [],
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
   @Post("announcements")
   async announce(@Req() req: AuthRequest, @Body() dto: D.AnnouncementDto) {
@@ -601,12 +746,53 @@ export class HrController {
     });
   }
   @Get("recruitment")
-  async recruitment(@Req() req: AuthRequest) {
+  async recruitment(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
     permit(req.actor, ADMIN);
-    return this.db.job.findMany({
-      include: { candidates: { orderBy: { createdAt: "desc" } } },
-      orderBy: { createdAt: "desc" },
-    });
+    return paged(
+      this.db.job,
+      {
+        include: { _count: { select: { candidates: true } } },
+        where: {
+          ...(q.search
+            ? { title: { contains: q.search, mode: "insensitive" } }
+            : {}),
+          ...(q.status ? { status: q.status } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
+  }
+  @Get("jobs/:id/candidates")
+  async candidates(
+    @Req() req: AuthRequest,
+    @Param("id") id: string,
+    @Query() q: Record<string, string>,
+  ) {
+    permit(req.actor, ADMIN);
+    const job = await this.db.job.findUnique({ where: { id } });
+    if (!job) throw new NotFoundException("Position not found");
+    return paged(
+      this.db.candidate,
+      {
+        where: {
+          jobId: id,
+          ...(q.stage ? { stage: q.stage } : {}),
+          ...(q.search
+            ? {
+                OR: ["name", "email"].map((field) => ({
+                  [field]: { contains: q.search, mode: "insensitive" },
+                })),
+              }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
   @Post("jobs")
   job(@Req() req: AuthRequest, @Body() dto: D.JobDto) {
@@ -715,20 +901,41 @@ export class HrController {
     });
   }
   @Get("onboarding")
-  onboarding(@Req() req: AuthRequest) {
-    return this.db.employee.findMany({
-      where: { AND: [this.scope(req.actor), { onboarding: { some: {} } }] },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        jobTitle: true,
-        status: true,
-        department: true,
-        onboarding: true,
+  onboarding(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
+    return paged(
+      this.db.employee,
+      {
+        searchFields: ["firstName", "lastName", "email"],
+        wordSearch: true,
+        filterFields: ["status", "departmentId"],
+        where: {
+          AND: [
+            this.scope(req.actor),
+            { onboarding: { some: {} } },
+            ...(q.phase
+              ? [
+                  {
+                    status:
+                      q.phase === "offboarding"
+                        ? "Inactive"
+                        : { not: "Inactive" },
+                  },
+                ]
+              : []),
+          ],
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          jobTitle: true,
+          status: true,
+          department: true,
+          onboarding: true,
+        },
       },
-      take: 100,
-    });
+      q,
+    );
   }
   @Patch("onboarding/:id")
   async onboard(@Req() req: AuthRequest, @Param("id") id: string) {
@@ -769,13 +976,18 @@ export class HrController {
     });
   }
   @Get("tasks")
-  tasks(@Req() req: AuthRequest) {
-    return this.db.task.findMany({
-      where: { employee: this.scope(req.actor) },
-      include: { employee: { select: { firstName: true, lastName: true } } },
-      orderBy: { dueDate: "asc" },
-      take: 100,
-    });
+  tasks(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
+    return paged(
+      this.db.task,
+      {
+        searchFields: ["title"],
+        filterFields: ["status", "employeeId"],
+        where: { employee: this.scope(req.actor) },
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        orderBy: { dueDate: "asc" },
+      },
+      q,
+    );
   }
   @Post("tasks")
   async createTask(@Req() req: AuthRequest, @Body() dto: D.TaskDto) {
@@ -846,6 +1058,7 @@ export class HrController {
   @Get("tasks/:id/history") async taskHistory(
     @Req() req: AuthRequest,
     @Param("id") id: string,
+    @Query() q: Record<string, string> = {},
   ) {
     if (
       !(await this.db.task.findFirst({
@@ -853,10 +1066,14 @@ export class HrController {
       }))
     )
       throw new NotFoundException();
-    return this.db.taskEvent.findMany({
-      where: { taskId: id },
-      orderBy: { createdAt: "asc" },
-    });
+    return paged(
+      this.db.taskEvent,
+      {
+        where: { taskId: id },
+        orderBy: { createdAt: "asc" },
+      },
+      q,
+    );
   }
   @Post("tasks/:id/notes") async taskNote(
     @Req() req: AuthRequest,
@@ -920,27 +1137,37 @@ export class HrController {
   }
 
   @Get("payroll")
-  async payroll(@Req() req: AuthRequest) {
-    const items = await this.db.payroll.findMany({
-      where: FINANCE.includes(req.actor.role)
-        ? {}
-        : {
-            employeeId: ownEmployee(req.actor),
-            status: { in: ["Approved", "Paid"] },
+  async payroll(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
+    const result = await paged(
+      this.db.payroll,
+      {
+        searchFields: ["period"],
+        filterFields: ["status", "employeeId"],
+        where: FINANCE.includes(req.actor.role)
+          ? {}
+          : {
+              employeeId: ownEmployee(req.actor),
+              status: { in: ["Approved", "Paid"] },
+            },
+        include: {
+          employee: {
+            select: { firstName: true, lastName: true, number: true },
           },
-      include: {
-        employee: { select: { firstName: true, lastName: true, number: true } },
+        },
+        orderBy: { period: "desc" },
       },
-      orderBy: { period: "desc" },
-      take: 100,
-    });
-    return items.map((p) => ({
-      ...p,
-      baseMinor: p.baseMinor.toString(),
-      allowancesMinor: p.allowancesMinor.toString(),
-      deductionsMinor: p.deductionsMinor.toString(),
-      netMinor: p.netMinor.toString(),
-    }));
+      q,
+    );
+    return {
+      ...result,
+      items: result.items.map((p) => ({
+        ...p,
+        baseMinor: p.baseMinor.toString(),
+        allowancesMinor: p.allowancesMinor.toString(),
+        deductionsMinor: p.deductionsMinor.toString(),
+        netMinor: p.netMinor.toString(),
+      })),
+    };
   }
   @Post("payroll")
   async createPayroll(@Req() req: AuthRequest, @Body() dto: D.PayrollDto) {
@@ -986,11 +1213,16 @@ export class HrController {
     });
   }
   @Get("audit")
-  auditLogs(@Req() req: AuthRequest) {
+  auditLogs(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, ADMIN);
-    return this.db.audit.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    return paged(
+      this.db.audit,
+      {
+        searchFields: ["action", "entityId"],
+        filterFields: [],
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
 }

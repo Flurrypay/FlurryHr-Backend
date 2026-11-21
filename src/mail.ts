@@ -1,3 +1,4 @@
+import { obsoleteMail } from "./obsolete-mail";
 import {
   Injectable,
   Inject,
@@ -26,7 +27,7 @@ function mailKey() {
     );
   return Buffer.from(key, "hex");
 }
-function encrypt(value: string) {
+export function encrypt(value: string) {
   const iv = randomBytes(12),
     cipher = createCipheriv("aes-256-gcm", mailKey(), iv);
   return [
@@ -37,7 +38,7 @@ function encrypt(value: string) {
     cipher.getAuthTag().toString("hex"),
   ].join(".");
 }
-function decrypt(value: string) {
+export function decrypt(value: string) {
   const [iv, data, tag] = value.split(".");
   const decipher = createDecipheriv(
     "aes-256-gcm",
@@ -61,7 +62,15 @@ export function queueMail(
     referenceId?: string;
   },
 ) {
-  return tx.mailJob.create({ data: { ...data, body: encrypt(data.body) } });
+  const queuedAt = new Date();
+  return tx.mailJob.create({
+    data: {
+      ...data,
+      body: encrypt(data.body),
+      createdAt: queuedAt,
+      availableAt: queuedAt,
+    },
+  });
 }
 @Injectable()
 export class MailWorker implements OnModuleInit, OnModuleDestroy {
@@ -82,12 +91,26 @@ export class MailWorker implements OnModuleInit, OnModuleDestroy {
     try {
       const jobs = await this.db.system.$queryRaw<
         { id: string }[]
-      >`UPDATE "MailJob" SET status='Processing', "lockedAt"=now() WHERE id IN (SELECT id FROM "MailJob" WHERE (status IN ('Queued','Retry') AND "availableAt" <= now()) OR (status='Processing' AND "lockedAt" < now()-interval '5 minutes') ORDER BY "createdAt" LIMIT 10 FOR UPDATE SKIP LOCKED) RETURNING id`;
+      >`UPDATE "MailJob" SET status='Processing', "lockedAt"=(now() AT TIME ZONE 'UTC') WHERE id IN (SELECT id FROM "MailJob" WHERE (status IN ('Queued','Retry') AND "availableAt" <= (now() AT TIME ZONE 'UTC')) OR (status='Queued' AND attempts=0 AND "availableAt"="createdAt") OR (status='Processing' AND "lockedAt" < (now() AT TIME ZONE 'UTC')-interval '5 minutes') ORDER BY "createdAt" LIMIT 10 FOR UPDATE SKIP LOCKED) RETURNING id`;
       for (const { id } of jobs) {
         const job = await this.db.system.mailJob.findUniqueOrThrow({
           where: { id },
         });
+        if (job.status !== "Processing") continue;
         try {
+          const plaintext = decrypt(job.body);
+          if (await obsoleteMail(this.db.system, job, plaintext)) {
+            await this.db.system.mailJob.updateMany({
+              where: { id, status: "Processing" },
+              data: {
+                status: "Superseded",
+                body: "[Obsolete message removed]",
+                lockedAt: null,
+                lastError: null,
+              },
+            });
+            continue;
+          }
           if (process.env.MAIL_TRANSPORT === "file") {
             if (process.env.NODE_ENV !== "test")
               throw new Error("TEST_TRANSPORT_DISABLED");
@@ -101,12 +124,12 @@ export class MailWorker implements OnModuleInit, OnModuleDestroy {
                 id: job.id,
                 to: job.to,
                 subject: job.subject,
-                body: decrypt(job.body),
+                body: plaintext,
               }),
               { mode: 0o600 },
             );
           } else {
-            await sendZohoMail({ ...job, body: decrypt(job.body) });
+            await sendZohoMail({ ...job, body: plaintext });
           }
           // Provider acceptance is not a guarantee of inbox delivery.
           await this.db.system.mailJob.update({

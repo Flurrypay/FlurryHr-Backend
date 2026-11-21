@@ -1,3 +1,4 @@
+import { paged } from "./pagination";
 import {
   Controller,
   Get,
@@ -6,6 +7,7 @@ import {
   Param,
   Body,
   Req,
+  Query,
   Res,
   Inject,
   UseGuards,
@@ -49,25 +51,36 @@ export class ResourcesController {
     if (!item) throw new NotFoundException("Employee not found");
     return item;
   }
-  @Get("documents") documents(@Req() req: AuthRequest) {
-    return this.db.document.findMany({
-      where: ADMIN.includes(req.actor.role)
-        ? {}
-        : {
-            OR: [{ employeeId: null }, { employeeId: ownEmployee(req.actor) }],
-          },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        mime: true,
-        bytes: true,
-        employeeId: true,
-        createdAt: true,
+  @Get("documents") documents(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    return paged(
+      this.db.document,
+      {
+        searchFields: ["name", "category"],
+        filterFields: ["employeeId", "category"],
+        where: ADMIN.includes(req.actor.role)
+          ? {}
+          : {
+              OR: [
+                { employeeId: null },
+                { employeeId: ownEmployee(req.actor) },
+              ],
+            },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          mime: true,
+          bytes: true,
+          employeeId: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
       },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+      q,
+    );
   }
   @Post("documents") async upload(
     @Req() req: AuthRequest,
@@ -192,14 +205,23 @@ export class ResourcesController {
     );
     res.send(bytes);
   }
-  @Get("assets") async assets(@Req() req: AuthRequest) {
-    return this.db.asset.findMany({
-      where: ADMIN.includes(req.actor.role)
-        ? {}
-        : { employeeId: ownEmployee(req.actor) },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+  @Get("assets") async assets(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    return paged(
+      this.db.asset,
+      {
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        searchFields: ["name", "identifier", "serialNumber"],
+        filterFields: ["status", "employeeId"],
+        where: ADMIN.includes(req.actor.role)
+          ? {}
+          : { employeeId: ownEmployee(req.actor) },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
   @Post("assets") async createAsset(
     @Req() req: AuthRequest,
@@ -267,44 +289,67 @@ export class ResourcesController {
   @Get("assets/:id/history") async assetHistory(
     @Req() req: AuthRequest,
     @Param("id") id: string,
+    @Query() q: Record<string, string> = {},
   ) {
     permit(req.actor, ADMIN);
     if (!(await this.db.asset.findUnique({ where: { id } })))
       throw new NotFoundException();
-    return this.db.assetHistory.findMany({
-      where: { assetId: id },
-      orderBy: { createdAt: "desc" },
-    });
+    return paged(
+      this.db.assetHistory,
+      {
+        searchFields: ["action", "reason"],
+        filterFields: [],
+        where: { assetId: id },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
-  @Get("performance") reviews(@Req() req: AuthRequest) {
-    return this.db.performanceReview.findMany({
-      where: ADMIN.includes(req.actor.role)
-        ? {}
-        : req.actor.role === "MANAGER"
-          ? { employeeId: { in: [] } }
-          : { employeeId: ownEmployee(req.actor) },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+  @Get("performance") reviews(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    return paged(
+      this.db.performanceReview,
+      {
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        searchFields: ["period", "goal"],
+        filterFields: ["status", "employeeId"],
+        where: ADMIN.includes(req.actor.role)
+          ? {}
+          : req.actor.role === "MANAGER"
+            ? { employeeId: { in: [] } }
+            : { employeeId: ownEmployee(req.actor) },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
-  @Get("performance/team") async teamReviews(@Req() req: AuthRequest) {
+  @Get("performance/team") async teamReviews(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
     permit(req.actor, PEOPLE);
-    const employees = await this.db.employee.findMany({
-      where: ADMIN.includes(req.actor.role)
-        ? {}
-        : {
-            OR: [
-              { managerId: ownEmployee(req.actor) },
-              { id: ownEmployee(req.actor) },
-            ],
-          },
-      select: { id: true },
-    });
-    return this.db.performanceReview.findMany({
-      where: { employeeId: { in: employees.map((e) => e.id) } },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+    return paged(
+      this.db.performanceReview,
+      {
+        include: { employee: { select: { firstName: true, lastName: true } } },
+        searchFields: ["period", "goal"],
+        filterFields: ["status", "employeeId"],
+        where: {
+          employee: ADMIN.includes(req.actor.role)
+            ? {}
+            : {
+                OR: [
+                  { managerId: ownEmployee(req.actor) },
+                  { id: ownEmployee(req.actor) },
+                ],
+              },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
   @Post("performance") async review(
     @Req() req: AuthRequest,

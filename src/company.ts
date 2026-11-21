@@ -6,6 +6,7 @@ import {
   Param,
   Body,
   Req,
+  Query,
   Inject,
   UseGuards,
   BadRequestException,
@@ -35,6 +36,7 @@ import {
   HolidayDto,
   ProfileDto,
 } from "./saas.dto";
+import { pagination, paged, rawCursor, readRawCursor } from "./pagination";
 import { queueMail, emailLink, mailConfigured } from "./mail";
 const welcomeTasks = [
   "Confirm your profile",
@@ -153,57 +155,80 @@ export class CompanyController {
     });
   }
   @Get("invitations")
-  async invitations(@Req() req: AuthRequest) {
+  async invitations(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
     permit(req.actor, ADMIN);
-    const items = await this.db.invitation.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        employeeId: true,
-        status: true,
-        expiresAt: true,
-        createdAt: true,
-        acceptedAt: true,
-      },
-    });
-    const mail = await this.db.system.mailJob.findMany({
-      where: { organizationId: companyId(req.actor) },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        referenceId: true,
-        to: true,
-        status: true,
-        attempts: true,
-        lastError: true,
-        acceptedAt: true,
-        createdAt: true,
-      },
-      take: 200,
-    });
-    const latest = items.filter(
-      (item, index) =>
-        items.findIndex((other) => other.employeeId === item.employeeId) ===
-        index,
-    );
-    return latest.map((i) => ({
-      ...i,
-      status:
-        i.status === "Pending" && i.expiresAt < new Date()
-          ? "Expired"
-          : i.status,
-      delivery: mail.find((m) => m.referenceId === i.id) || null,
-      deliveryHistory: mail.filter((m) =>
-        items.some(
-          (invitation) =>
-            invitation.employeeId === i.employeeId &&
-            invitation.id === m.referenceId,
-        ),
-      ),
-    }));
+    const { page, limit, skip } = pagination(q),
+      org = companyId(req.actor);
+    const cursorScope = JSON.stringify([
+      org,
+      "invitations",
+      q.search || "",
+      q.status || "",
+    ]);
+    const after = readRawCursor(q.after, cursorScope, 2);
+    const [result] = await this.db.system.$queryRaw<
+      { items: unknown[]; total: number }[]
+    >(Prisma.sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (i."employeeId") i.id,i.email,i.role,i."employeeId",to_char(i."expiresAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt",to_char(i."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",to_char(i."acceptedAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "acceptedAt",
+          CASE WHEN i.status='Pending' AND i."expiresAt"<(now() AT TIME ZONE 'UTC') THEN 'Expired' ELSE i.status END AS status
+        FROM "Invitation" i WHERE i."organizationId"=${org}
+        ORDER BY i."employeeId",i."createdAt" DESC,i.id DESC
+      ), filtered AS (SELECT * FROM latest WHERE true
+        ${q.search ? Prisma.sql`AND email ILIKE ${"%" + q.search.slice(0, 100) + "%"}` : Prisma.empty}
+        ${q.status ? Prisma.sql`AND status=${q.status}` : Prisma.empty}
+      ), page AS (SELECT * FROM filtered ${after ? Prisma.sql`WHERE ("createdAt",id)<(${after[0]},${after[1]})` : Prisma.empty} ORDER BY "createdAt" DESC,id DESC LIMIT ${limit} OFFSET ${after ? 0 : skip}),
+      enriched AS (SELECT p.*, (SELECT jsonb_build_object('id',m.id,'status',m.status,'lastError',m."lastError",'attempts',m.attempts,'createdAt',to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+        FROM "MailJob" m WHERE m."organizationId"=${org} AND m."referenceId"=p.id ORDER BY m."createdAt" DESC,m.id DESC LIMIT 1) AS delivery FROM page p)
+      SELECT COALESCE((SELECT jsonb_agg(to_jsonb(enriched) ORDER BY "createdAt" DESC,id DESC) FROM enriched),'[]'::jsonb) AS items,
+        (SELECT count(*)::int FROM filtered) AS total`);
+    const last = result.items.at(-1) as
+      { createdAt: string; id: string } | undefined;
+    return {
+      ...result,
+      page,
+      limit,
+      nextCursor: rawCursor(cursorScope, last && [last.createdAt, last.id]),
+    };
+  }
+  @Get("invitations/:id/history")
+  async invitationHistory(
+    @Req() req: AuthRequest,
+    @Param("id") id: string,
+    @Query() q: Record<string, string>,
+  ) {
+    permit(req.actor, ADMIN);
+    const invitation = await this.db.invitation.findUniqueOrThrow({
+        where: { id },
+      }),
+      org = companyId(req.actor),
+      { page, limit, skip } = pagination(q);
+    const cursorScope = JSON.stringify([
+      org,
+      "invitation-history",
+      invitation.employeeId,
+    ]);
+    const after = readRawCursor(q.after, cursorScope, 2);
+    const [result] = await this.db.system.$queryRaw<
+      { items: unknown[]; total: number }[]
+    >(Prisma.sql`
+      WITH history AS (SELECT m.id,m.status,m.attempts,m."lastError",to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",to_char(m."acceptedAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "acceptedAt"
+        FROM "MailJob" m JOIN "Invitation" i ON i.id=m."referenceId" AND i."organizationId"=${org}
+        WHERE m."organizationId"=${org} AND i."employeeId"=${invitation.employeeId}),
+      page AS (SELECT * FROM history ${after ? Prisma.sql`WHERE ("createdAt",id)<(${after[0]},${after[1]})` : Prisma.empty} ORDER BY "createdAt" DESC,id DESC LIMIT ${limit} OFFSET ${after ? 0 : skip})
+      SELECT COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY "createdAt" DESC,id DESC) FROM page),'[]'::jsonb) AS items,
+        (SELECT count(*)::int FROM history) AS total`);
+    const last = result.items.at(-1) as
+      { createdAt: string; id: string } | undefined;
+    return {
+      ...result,
+      page,
+      limit,
+      nextCursor: rawCursor(cursorScope, last && [last.createdAt, last.id]),
+    };
   }
   @Post("invitations")
   @Throttle({ default: { limit: 30, ttl: 60000 } })
@@ -381,6 +406,18 @@ export class CompanyController {
       });
       if (!item.count)
         throw new NotFoundException("Pending invitation not found");
+      await tx.mailJob.updateMany({
+        where: {
+          organizationId: companyId(req.actor),
+          referenceId: id,
+          status: { in: ["Queued", "Retry", "Failed"] },
+        },
+        data: {
+          status: "Superseded",
+          body: "[Revoked invitation]",
+          lastError: null,
+        },
+      });
       await tx.audit.create({
         data: {
           actorId: req.actor.id,
@@ -392,23 +429,28 @@ export class CompanyController {
     });
   }
   @Get("mail")
-  async mail(@Req() req: AuthRequest) {
+  async mail(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
     permit(req.actor, ADMIN);
-    return this.db.system.mailJob.findMany({
-      where: { organizationId: companyId(req.actor) },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        to: true,
-        subject: true,
-        status: true,
-        attempts: true,
-        lastError: true,
-        acceptedAt: true,
-        createdAt: true,
+    return paged(
+      this.db.system.mailJob,
+      {
+        searchFields: ["to", "subject"],
+        filterFields: ["status"],
+        where: { organizationId: companyId(req.actor) },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          to: true,
+          subject: true,
+          status: true,
+          attempts: true,
+          lastError: true,
+          acceptedAt: true,
+          createdAt: true,
+        },
       },
-    });
+      q,
+    );
   }
   @Post("mail/:id/retry")
   @Throttle({ default: { limit: 5, ttl: 60000 } })
@@ -431,8 +473,12 @@ export class CompanyController {
       throw new NotFoundException("Retryable message not found");
     return { message: "Message queued for retry" };
   }
-  @Get("holidays") holidays() {
-    return this.db.holiday.findMany({ orderBy: { date: "asc" } });
+  @Get("holidays") holidays(@Query() q: Record<string, string>) {
+    return paged(
+      this.db.holiday,
+      { searchFields: ["name"], orderBy: { date: "asc" } },
+      q,
+    );
   }
   @Post("holidays") holiday(@Req() req: AuthRequest, @Body() dto: HolidayDto) {
     permit(req.actor, ADMIN);
@@ -475,12 +521,19 @@ export class CompanyController {
       return employee;
     });
   }
-  @Get("notifications") notifications(@Req() req: AuthRequest) {
-    return this.db.notification.findMany({
-      where: { userId: req.actor.id },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+  @Get("notifications") notifications(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    return paged(
+      this.db.notification,
+      {
+        searchFields: ["title", "body"],
+        where: { userId: req.actor.id },
+        orderBy: { createdAt: "desc" },
+      },
+      q,
+    );
   }
   @Patch("notifications/:id/read") async read(
     @Req() req: AuthRequest,

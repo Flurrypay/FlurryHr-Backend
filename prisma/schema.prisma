@@ -15,6 +15,11 @@ enum Role {
   EMPLOYEE
 }
 model User {
+  mfaSecretEncrypted String?
+  mfaEnabledAt DateTime?
+  mfaLastUsedStep BigInt?
+  mfaEnrollment MfaEnrollment?
+  mfaRecoveryCodes MfaRecoveryCode[]
   id String @id @default(uuid())
   email String @unique
   passwordHash String
@@ -29,6 +34,7 @@ model User {
   createdAt DateTime @default(now())
 }
 model Session {
+  mfaVerifiedAt DateTime?
   id String @id
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -77,6 +83,8 @@ model Employee {
   organization Organization @relation(fields: [organizationId], references: [id])
   @@index([organizationId])
   @@unique([id, organizationId])
+  assets Asset[]
+  reviews PerformanceReview[]
   id String @id @default(uuid())
   number Int @unique @default(autoincrement())
   firstName String
@@ -111,6 +119,10 @@ model Employee {
   @@unique([organizationId, userId])
 }
 model Attendance {
+  workDate String?
+  scheduleSnapshot Json?
+  snapshotSource String?
+  @@index([organizationId, workDate, employeeId])
   requestKey String? @unique
   organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
   organization Organization @relation(fields: [organizationId], references: [id])
@@ -357,6 +369,7 @@ model AccountToken {
  @@index([userId,kind])
 }
 model Invitation {
+  @@index([organizationId, employeeId, createdAt, id])
  id String @id @default(uuid())
  organizationId String
  organization Organization @relation(fields:[organizationId],references:[id])
@@ -372,6 +385,7 @@ model Invitation {
  @@index([organizationId,status])
 }
 model MailJob {
+  @@index([organizationId, referenceId, createdAt, id])
  id String @id @default(uuid())
  referenceId String?
  organizationId String?
@@ -444,6 +458,7 @@ model Asset {
  condition String @default("Good")
  status String @default("Available")
  employeeId String?
+ employee Employee? @relation(fields:[employeeId,organizationId],references:[id,organizationId],map:"Asset_employeeId_tenant_fk",onDelete:Restrict,onUpdate:NoAction)
  createdAt DateTime @default(now())
  @@unique([organizationId,identifier])
  @@index([organizationId,employeeId])
@@ -465,6 +480,7 @@ model PerformanceReview {
  organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
  organization Organization @relation(fields:[organizationId],references:[id])
  employeeId String
+ employee Employee @relation(fields:[employeeId,organizationId],references:[id,organizationId],map:"PerformanceReview_employeeId_tenant_fk",onDelete:Restrict,onUpdate:NoAction)
  period String
  goal String
  selfAssessment String @default("")
@@ -472,4 +488,20 @@ model PerformanceReview {
  status String @default("Draft")
  createdAt DateTime @default(now())
  @@index([organizationId,employeeId])
+}
+
+model MfaEnrollment {
+  userId String @id
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  secretEncrypted String
+  expiresAt DateTime
+}
+model MfaRecoveryCode {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  hash String @unique
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId,consumedAt])
 }

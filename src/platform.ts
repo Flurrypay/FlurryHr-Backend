@@ -1,3 +1,4 @@
+import { paged } from "./pagination";
 import {
   Controller,
   Get,
@@ -44,10 +45,9 @@ export class PlatformController {
       db.invitation.count({ where: { status: "Accepted" } }),
       db.mailJob.count({ where: { status: { in: ["Failed", "Retry"] } } }),
       db.platformAudit.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
-      db.organization.findMany({
-        where: { createdAt: { gte: new Date(Date.now() - 30 * 86400000) } },
-        select: { createdAt: true },
-      }),
+      db.$queryRaw<
+        { createdAt: string; count: number }[]
+      >`SELECT "createdAt"::date::text AS "createdAt",count(*)::int AS count FROM "Organization" WHERE "createdAt">=(now() AT TIME ZONE 'UTC')-interval '30 days' AND "createdAt"<=(now() AT TIME ZONE 'UTC') GROUP BY "createdAt"::date ORDER BY "createdAt"::date`,
     ]);
     return {
       metrics: {
@@ -77,22 +77,11 @@ export class PlatformController {
     };
   }
   @Get("companies") async companies(@Query() q: Record<string, string>) {
-    const page = Math.max(1, Math.floor(Number(q.page) || 1)),
-      limit = 20;
-    const where = {
-      ...(q.search
-        ? {
-            name: {
-              contains: q.search.slice(0, 100),
-              mode: "insensitive" as const,
-            },
-          }
-        : {}),
-      ...(q.status ? { status: q.status } : {}),
-    };
-    const [items, total] = await Promise.all([
-      this.db.system.organization.findMany({
-        where,
+    return paged(
+      this.db.system.organization,
+      {
+        searchFields: ["name"],
+        filterFields: ["status"],
         select: {
           id: true,
           name: true,
@@ -113,12 +102,9 @@ export class PlatformController {
           },
         },
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.db.system.organization.count({ where }),
-    ]);
-    return { items, total, page, limit };
+      },
+      q,
+    );
   }
   @Patch("companies/:id/status")
   @Throttle({ default: { limit: 5, ttl: 60000 } })
