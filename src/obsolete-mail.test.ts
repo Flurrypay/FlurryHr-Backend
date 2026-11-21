@@ -31,9 +31,10 @@ function fixture(overrides: Record<string, unknown> = {}) {
 test("current invitation email can be dispatched", async () => {
   assert.equal(await obsoleteMail(fixture(), job, body), false);
 });
-test("revoked, expired and rotated invitation messages are obsolete", async () => {
+test("revoked, deleted, expired and rotated invitation messages are obsolete", async () => {
   for (const change of [
     { status: "Revoked" },
+    { status: "Deleted" },
     { status: "Accepted" },
     { expiresAt: new Date("2000-01-01") },
     { tokenHash: "rotated" },

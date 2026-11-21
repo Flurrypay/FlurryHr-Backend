@@ -1,10 +1,10 @@
 {
   "description": "All original IDs retained. Section groups are parent-child navigation, duplicate descriptions remain independent acceptance entries. Source/test reconciliation is ongoing; statuses are never inferred from another row.",
   "statuses": {
-    "NOT_STARTED": 753,
-    "IN_PROGRESS": 16,
+    "NOT_STARTED": 750,
+    "IN_PROGRESS": 17,
     "IMPLEMENTED": 1,
-    "VERIFIED": 95,
+    "VERIFIED": 97,
     "BLOCKED": 7
   },
   "sourceDescriptionsVerified": { "spec": 645, "prose": 212 },
@@ -509,12 +509,6 @@
     },
     {
       "id": "SPEC-106",
-      "stage": 3,
-      "priority": "P1",
-      "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
-    },
-    {
-      "id": "SPEC-107",
       "stage": 3,
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows"
@@ -4198,12 +4192,6 @@
       "dependencies": "Relevant module"
     },
     {
-      "id": "SPEC-571",
-      "stage": 14,
-      "priority": "P1",
-      "dependencies": "Relevant module"
-    },
-    {
       "id": "SPEC-572",
       "stage": 14,
       "priority": "P1",
@@ -7143,14 +7131,14 @@
       "id": "SPEC-107",
       "section": "4.2 Company profile",
       "requirement": "Configure working location",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Persisted company details, timezone, contact fields and HTTPS logo URL; no logo-upload adapter",
-      "gap": "Requirement-specific implementation/verification remains open",
+      "status": "VERIFIED",
+      "existingImplementation": "Company address and approved attendance point editor; 100m server boundary for On-site/Hybrid and per-employee Remote points",
+      "gap": "Implemented; browser-reported GPS cannot guarantee spoof resistance",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Core module coverage does not verify this unfinished requirement",
-      "evidence": "See docs/TEST_COVERAGE.md for the current evidence scope",
-      "files": "backend/src/company.ts; frontend/src/saas/CompanySetup.tsx"
+      "coverage": "39 unit tests; 200 isolated HTTP checks; mocked GPS Chrome; connected Chrome; migration preservation",
+      "evidence": "See README and TEST_COVERAGE; production point configuration and deployment remain required",
+      "files": "backend/src/work-location.ts; backend/src/attendance.ts; frontend/src/components/WorkLocation.tsx"
     },
     {
       "id": "SPEC-108",
@@ -8352,14 +8340,14 @@
       "id": "SPEC-200",
       "section": "6. COMPLETE ROLES, PERMISSIONS & TENANT SECURITY",
       "requirement": "Platform Super Admin",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Fixed employee/HR checklist items; richer workflow statuses/templates and document acknowledgement absent",
-      "gap": "Requirement-specific implementation/verification remains open",
+      "status": "IN_PROGRESS",
+      "existingImplementation": "Dedicated platform identity/provisioning, MFA guards and /platform/login; company sessions do not capture platform sign-in",
+      "gap": "Full platform administrator lifecycle and granular roles remain unfinished",
       "priority": "P1",
       "dependencies": "Existing tenant/auth boundaries; preceding module workflows",
-      "coverage": "Core module coverage does not verify this unfinished requirement",
-      "evidence": "See docs/TEST_COVERAGE.md for the current evidence scope",
-      "files": "backend/src/hr.ts; company.ts; frontend/src/Workspace.tsx"
+      "coverage": "Existing MFA/security API suite; dedicated sign-in and retryable failure browser fixtures; connected platform MFA journey",
+      "evidence": "21 Nov: company identity cannot gain platform rights; explicit separate login accepts existing company browser session, validates session cookie and retains MFA requirement; no real-account provisioning/reset performed",
+      "files": "backend/src/auth.ts; mfa.ts; platform.ts; scripts/provision-platform.mjs; frontend/src/saas/Platform.tsx; Workspace.tsx"
     },
     {
       "id": "SPEC-201",
@@ -13175,14 +13163,14 @@
       "id": "SPEC-571",
       "section": "Scenario L — Security",
       "requirement": "Revoked invitations",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Existing MVP; individual trace pending",
-      "gap": "Audit/complete against this requirement",
+      "status": "VERIFIED",
+      "existingImplementation": "Revoked/deleted tokens denied; admin-only confirmed deletion with audit-preserving tombstone",
+      "gap": "Verified revoked-invitation security scenario; unrelated platform lifecycle remains separate",
       "priority": "P1",
       "dependencies": "Relevant module",
-      "coverage": "Not yet mapped",
-      "evidence": "None for this requirement",
-      "files": "backend/src; frontend/src"
+      "coverage": "33 units including deleted-mail obsolescence; 183 HTTP checks; connected SaaS Chrome; isolated auth/deletion UI Chrome",
+      "evidence": "21 Nov: pending/accepted deletion rejected, staff and cross-tenant denied, concurrent delete audited once, old rows not resurfaced, delivery history and employee retained, fresh reinvite works",
+      "files": "backend/src/company.ts; obsolete-mail.ts; frontend/src/saas/WorkspaceModules.tsx"
     },
     {
       "id": "SPEC-572",

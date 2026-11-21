@@ -17,6 +17,17 @@ if (
 const base = process.env.TEST_API_URL || "http://127.0.0.1:4002/api",
   origin = process.env.TEST_WEB_URL || "http://localhost:5175",
   mailDir = process.env.TEST_MAIL_DIR || "/tmp/flurryhr-saas-mail";
+const approvedOffice = {
+  address: "Fixture approved Lagos office",
+  latitude: 6.5244,
+  longitude: 3.3792,
+};
+const gps = () => ({
+  latitude: approvedOffice.latitude,
+  longitude: approvedOffice.longitude,
+  accuracy: 5,
+  capturedAt: Date.now(),
+});
 const suffix = Date.now().toString(),
   password = "SaaS-Integration-Password-2026!";
 let responseChecks = 0;
@@ -134,6 +145,11 @@ async function company(label) {
       onboardingStep: 6,
       finish: true,
     },
+  });
+  await call("company/attendance-location", {
+    cookie: actor.cookie,
+    method: "PATCH",
+    data: approvedOffice,
   });
   actor.options = (
     await call("directory-options", { cookie: actor.cookie })
@@ -352,13 +368,42 @@ try {
       },
     }),
   );
+  await call("company/attendance-location", {
+    cookie: e.cookie,
+    method: "PATCH",
+    data: approvedOffice,
+    status: 403,
+  });
+  await call(`employees/${e.employee.id}/work-location`, {
+    cookie: b.cookie,
+    method: "PATCH",
+    data: approvedOffice,
+    status: 404,
+  });
+  for (const [data, status] of [
+    [{}, 400],
+    [{ ...gps(), latitude: 7 }, 403],
+    [{ ...gps(), capturedAt: Date.now() - 180000 }, 400],
+    [{ ...gps(), accuracy: 70 }, 400],
+  ]) {
+    await call("attendance/clock-in", {
+      cookie: e.cookie,
+      method: "POST",
+      data,
+      status,
+    });
+  }
+  assert.equal(
+    await db.attendance.count({ where: { employeeId: e.employee.id } }),
+    0,
+  );
   const sessions = await Promise.all(
     Array.from({ length: 5 }, () =>
       call("attendance/clock-in", {
         cookie: e.cookie,
         method: "POST",
         status: 201,
-        data: {},
+        data: gps(),
         headers: { "Idempotency-Key": `attendance-${suffix}-retry` },
       }),
     ),
@@ -366,6 +411,17 @@ try {
   assert.equal(new Set(sessions.map((x) => x.body.id)).size, 1);
   const session = sessions[0].body;
   assert.equal(session.organizationId, a.organization.id);
+  assert.equal(session.locationVerification.clockIn.radiusMetres, 100);
+  await call(`attendance/clock-out/${session.id}`, {
+    cookie: e.cookie,
+    method: "POST",
+    data: { ...gps(), latitude: 7 },
+    status: 403,
+  });
+  assert.equal(
+    (await db.attendance.findUnique({ where: { id: session.id } })).clockOut,
+    null,
+  );
   assert.equal(
     (await call("dashboard", { cookie: a.cookie })).body.metrics.clockedIn,
     1,
@@ -378,14 +434,14 @@ try {
     cookie: b.cookie,
     method: "POST",
     status: 400,
-    data: {},
+    data: gps(),
   });
   const closed = (
     await call(`attendance/clock-out/${session.id}`, {
       cookie: e.cookie,
       method: "POST",
       status: 201,
-      data: {},
+      data: gps(),
     })
   ).body;
   assert.equal(
@@ -394,7 +450,7 @@ try {
         cookie: e.cookie,
         method: "POST",
         status: 201,
-        data: {},
+        data: gps(),
       })
     ).body.clockOut,
     closed.clockOut,
@@ -404,12 +460,83 @@ try {
       cookie: e.cookie,
       method: "POST",
       status: 201,
-      data: {},
+      data: gps(),
       headers: { "Idempotency-Key": `attendance-${suffix}-retry` },
     })
   ).body;
   assert.equal(delayedReplay.id, session.id);
   assert.equal(delayedReplay.clockOut, closed.clockOut);
+  const remotePoint = {
+    ...approvedOffice,
+    address: "Fixture approved remote address",
+    latitude: 6.6,
+  };
+  await call(`employees/${e.employee.id}/work-location`, {
+    cookie: a.cookie,
+    method: "PATCH",
+    data: remotePoint,
+  });
+  await call(`employees/${e.employee.id}/work-location`, {
+    cookie: e.cookie,
+    method: "PATCH",
+    data: approvedOffice,
+    status: 403,
+  });
+  await db.employee.update({
+    where: { id: e.employee.id },
+    data: { workArrangement: "Remote" },
+  });
+  await call("attendance/clock-in", {
+    cookie: e.cookie,
+    method: "POST",
+    data: gps(),
+    status: 403,
+  });
+  const remoteSession = (
+    await call("attendance/clock-in", {
+      cookie: e.cookie,
+      method: "POST",
+      data: { ...gps(), latitude: remotePoint.latitude },
+      status: 201,
+    })
+  ).body;
+  assert.equal(remoteSession.locationVerification.clockIn.kind, "Remote");
+  await call(`attendance/clock-out/${remoteSession.id}`, {
+    cookie: e.cookie,
+    method: "POST",
+    data: { ...gps(), latitude: remotePoint.latitude },
+    status: 201,
+  });
+  await db.employee.update({
+    where: { id: e.employee.id },
+    data: { workArrangement: "On-site" },
+  });
+  await call("attendance/clock-in", {
+    cookie: e.cookie,
+    method: "POST",
+    data: { ...gps(), latitude: remotePoint.latitude },
+    status: 403,
+  });
+  const onsiteSession = (
+    await call("attendance/clock-in", {
+      cookie: e.cookie,
+      method: "POST",
+      data: gps(),
+      status: 201,
+    })
+  ).body;
+  assert.equal(onsiteSession.locationVerification.clockIn.kind, "Company");
+  await call(`attendance/clock-out/${onsiteSession.id}`, {
+    cookie: e.cookie,
+    method: "POST",
+    data: gps(),
+    status: 201,
+  });
+  await db.employee.update({
+    where: { id: e.employee.id },
+    data: { workArrangement: "Hybrid" },
+  });
+
   assert.equal(
     (await call("attendance/mine", { cookie: e.cookie })).body.active,
     null,
@@ -869,6 +996,11 @@ try {
     },
   });
   const revoked = await invite(a, "Revoked");
+  await call(`invitations/${revoked.item.id}`, {
+    cookie: a.cookie,
+    method: "DELETE",
+    status: 400,
+  });
   await call(`invitations/${revoked.item.id}/revoke`, {
     cookie: a.cookie,
     method: "POST",
@@ -880,6 +1012,109 @@ try {
     status: 400,
     data: { token: revoked.token, password },
   });
+  await call(`invitations/${revoked.item.id}`, {
+    cookie: b.cookie,
+    method: "DELETE",
+    status: 404,
+  });
+  await call(`invitations/${revoked.item.id}`, {
+    cookie: e.cookie,
+    method: "DELETE",
+    status: 403,
+  });
+  const olderRevoked = await db.invitation.create({
+    data: {
+      organizationId: a.organization.id,
+      employeeId: revoked.item.employeeId,
+      email: revoked.dto.email,
+      role: "EMPLOYEE",
+      status: "Revoked",
+      invitedBy: a.id,
+      tokenHash: createHash("sha256").update(randomBytes(32)).digest("hex"),
+      expiresAt: new Date(Date.now() + 86400000),
+      createdAt: new Date(Date.now() - 86400000),
+    },
+  });
+  const retainedDeliveryCount = await db.mailJob.count({
+    where: { referenceId: revoked.item.id, organizationId: a.organization.id },
+  });
+  assert.ok(retainedDeliveryCount > 0);
+  await Promise.all(
+    [1, 2].map(() =>
+      call(`invitations/${revoked.item.id}`, {
+        cookie: a.cookie,
+        method: "DELETE",
+      }),
+    ),
+  );
+  assert.equal(
+    (await db.invitation.findUniqueOrThrow({ where: { id: revoked.item.id } }))
+      .status,
+    "Deleted",
+  );
+  assert.equal(
+    await db.mailJob.count({
+      where: {
+        referenceId: revoked.item.id,
+        organizationId: a.organization.id,
+      },
+    }),
+    retainedDeliveryCount,
+  );
+  assert.equal(
+    await db.audit.count({
+      where: {
+        organizationId: a.organization.id,
+        entityId: revoked.item.id,
+        action: "invitation.deleted",
+      },
+    }),
+    1,
+  );
+  const visibleAfterDelete = (await call("invitations", { cookie: a.cookie }))
+    .body;
+  assert.ok(
+    !visibleAfterDelete.items.some(
+      (item) => item.id === revoked.item.id || item.id === olderRevoked.id,
+    ),
+  );
+  assert.ok(
+    await db.employee.findUnique({ where: { id: revoked.item.employeeId } }),
+  );
+  await call(`invitations/${revoked.item.id}/history`, {
+    cookie: a.cookie,
+    status: 404,
+  });
+  await call(`invitations/${revoked.item.id}/resend`, {
+    cookie: a.cookie,
+    method: "POST",
+    status: 400,
+    data: {},
+  });
+  await call("invitations/inspect", {
+    method: "POST",
+    status: 400,
+    data: { token: revoked.token },
+  });
+  await call(`invitations/${inviteA.item.id}`, {
+    cookie: a.cookie,
+    method: "DELETE",
+    status: 400,
+  });
+  const reinvited = (
+    await call(`employees/${revoked.item.employeeId}/invite`, {
+      cookie: a.cookie,
+      method: "POST",
+      status: 201,
+      data: {},
+    })
+  ).body;
+  assert.notEqual(reinvited.id, revoked.item.id);
+  const visibleReinvite = (
+    await call("invitations", { cookie: a.cookie })
+  ).body.items.filter((item) => item.employeeId === revoked.item.employeeId);
+  assert.equal(visibleReinvite.length, 1);
+  assert.equal(visibleReinvite[0].id, reinvited.id);
   const expired = await invite(a, "Expired");
   await db.invitation.update({
     where: { id: expired.item.id },

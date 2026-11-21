@@ -15,6 +15,7 @@ import {
   ForbiddenException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { WorkLocationDto, locationValue } from "./work-location";
 import { DateTime } from "luxon";
 import { Db } from "./db";
 import {
@@ -242,6 +243,7 @@ export class HrController {
         wordSearch: true,
         filterFields: ["status"],
         include: employeeInclude,
+        omit: { remoteWorkLocation: !ADMIN.includes(req.actor.role) },
         orderBy:
           q.sort === "name"
             ? { firstName: q.direction === "desc" ? "desc" : "asc" }
@@ -254,6 +256,10 @@ export class HrController {
   async employee(@Req() req: AuthRequest, @Param("id") id: string) {
     const employee = await this.db.employee.findFirst({
       where: { AND: [{ id }, this.scope(req.actor)] },
+      omit: {
+        remoteWorkLocation:
+          !ADMIN.includes(req.actor.role) && id !== req.actor.employee?.id,
+      },
       include: {
         ...employeeInclude,
         onboarding: true,
@@ -266,6 +272,13 @@ export class HrController {
   @Post("employees")
   async createEmployee(@Req() req: AuthRequest, @Body() dto: D.EmployeeDto) {
     permit(req.actor, ADMIN);
+    if (
+      dto.workArrangement === "Remote" &&
+      !locationValue(dto.remoteWorkLocation)
+    )
+      throw new BadRequestException(
+        "Provide the approved remote work location for this employee",
+      );
     const { initialPassword, ...data } = dto;
     return this.db.$transaction(async (tx) => {
       if (
@@ -306,6 +319,17 @@ export class HrController {
     permit(req.actor, ADMIN);
     return this.db.$transaction(async (tx) => {
       const existing = await tx.employee.findUniqueOrThrow({ where: { id } });
+      if (
+        dto.workArrangement === "Remote" &&
+        !locationValue(
+          dto.remoteWorkLocation !== undefined
+            ? dto.remoteWorkLocation
+            : existing.remoteWorkLocation,
+        )
+      )
+        throw new BadRequestException(
+          "Provide the approved remote work location for this employee",
+        );
       if (dto.managerId) {
         let cursor: string | null = dto.managerId;
         const visited = new Set<string>([id]);
@@ -348,6 +372,34 @@ export class HrController {
       });
       await this.audit(tx, req.actor, "employee.updated", id);
       return employee;
+    });
+  }
+  @Patch("employees/:id/work-location")
+  async workLocation(
+    @Req() req: AuthRequest,
+    @Param("id") id: string,
+    @Body() dto: WorkLocationDto,
+  ) {
+    permit(req.actor, ADMIN);
+    return this.db.$transaction(async (tx) => {
+      if (!locationValue(dto))
+        throw new BadRequestException(
+          "Provide a valid address and coordinates",
+        );
+      await tx.employee.update({
+        where: { id },
+        data: {
+          remoteWorkLocation: {
+            address: dto.address.trim(),
+            latitude: dto.latitude,
+            longitude: dto.longitude,
+          },
+        },
+      });
+      await this.audit(tx, req.actor, "employee.work_location_updated", id, {
+        radiusMetres: 100,
+      });
+      return { ok: true };
     });
   }
   @Patch("employees/:id/status")

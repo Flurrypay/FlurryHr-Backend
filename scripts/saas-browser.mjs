@@ -22,6 +22,8 @@ const organizations = [],
   errors = [];
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const context = await browser.newContext({
+  permissions: ["geolocation"],
+  geolocation: { latitude: 6.5244, longitude: 3.3792, accuracy: 5 },
   viewport: { width: 1440, height: 1050 },
   acceptDownloads: true,
 });
@@ -77,6 +79,19 @@ async function register(page, label) {
   await page
     .getByLabel("Company address", { exact: true })
     .fill("Isolated browser test workspace");
+  await page
+    .getByLabel("Approved address", { exact: true })
+    .fill("Fixture approved Lagos office");
+  await page
+    .getByRole("button", { name: "Use my current location", exact: true })
+    .click();
+  await expect(page.getByLabel("Latitude", { exact: true })).toHaveValue(
+    "6.5244",
+  );
+  await save(page, "Save attendance location");
+  await expect(
+    page.getByText("Attendance location saved.", { exact: false }),
+  ).toBeVisible();
   await save(page, "Save company & continue");
   await expect(
     page.getByRole("heading", { name: "Departments", exact: true }),
@@ -291,8 +306,9 @@ try {
     })),
   });
   await owner.reload();
+  await expect(owner).toHaveURL(/\/workspace\/attendance$/);
   await expect(
-    owner.getByRole("heading", { name: /Welcome back/ }),
+    owner.getByRole("heading", { name: "Attendance", exact: true }),
   ).toBeVisible();
   await nav(owner, "Departments");
   await owner
@@ -536,6 +552,8 @@ try {
   await sendingHistory.locator("summary").click();
   const invitationToken = await testMailToken(employeeEmail, a.companyName);
   const employeeContext = await browser.newContext({
+    permissions: ["geolocation"],
+    geolocation: { latitude: 6.5244, longitude: 3.3792, accuracy: 5 },
     viewport: { width: 1440, height: 1000 },
   });
   const employee = await employeeContext.newPage();
@@ -1181,6 +1199,67 @@ try {
       id: { in: leaveTypeFixtures.map((item) => item.id) },
     },
   });
+  const deleteEmployee = await db.employee.create({
+    data: {
+      organizationId: a.organization.id,
+      firstName: "Delete",
+      lastName: "Fixture",
+      email: `delete-${suffix}@example.test`,
+      jobTitle: "Isolated invitation deletion",
+      joinedAt: new Date("2026-01-01"),
+      departmentId: record.departmentId,
+      scheduleId: record.scheduleId,
+      status: "Invited",
+    },
+  });
+  const deleteInvitation = await db.invitation.create({
+    data: {
+      organizationId: a.organization.id,
+      employeeId: deleteEmployee.id,
+      email: deleteEmployee.email,
+      role: "EMPLOYEE",
+      status: "Pending",
+      invitedBy: listOwner.userId,
+      tokenHash: randomUUID(),
+      expiresAt: new Date(Date.now() + 86400000),
+    },
+  });
+  const revokeResponse = await owner.request.post(
+    `${base}/api/invitations/${deleteInvitation.id}/revoke`,
+    { headers: { Origin: base }, data: {} },
+  );
+  assert.equal(revokeResponse.status(), 201);
+  await nav(owner, "Invitations");
+  const revokedRow = owner
+    .locator("tr")
+    .filter({ hasText: deleteEmployee.email });
+  await revokedRow.getByRole("button", { name: "Delete", exact: true }).click();
+  await owner
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete invitation", exact: true })
+    .click();
+  await expect(revokedRow).toHaveCount(0);
+  assert.equal(
+    (
+      await db.invitation.findUniqueOrThrow({
+        where: { id: deleteInvitation.id },
+      })
+    ).status,
+    "Deleted",
+  );
+  assert.equal(
+    await db.audit.count({
+      where: {
+        organizationId: a.organization.id,
+        entityId: deleteInvitation.id,
+        action: "invitation.deleted",
+      },
+    }),
+    1,
+  );
+  assert.ok(await db.employee.findUnique({ where: { id: deleteEmployee.id } }));
+  await db.invitation.delete({ where: { id: deleteInvitation.id } });
+  await db.employee.delete({ where: { id: deleteEmployee.id } });
   await nav(owner, "Reports & Analytics");
   const downloadPromise = owner.waitForEvent("download");
   await owner.getByRole("button", { name: "Export CSV", exact: true }).click();
@@ -1189,6 +1268,8 @@ try {
     "flurryhr-attendance.csv",
   );
   const bContext = await browser.newContext({
+      permissions: ["geolocation"],
+      geolocation: { latitude: 6.5244, longitude: 3.3792, accuracy: 5 },
       viewport: { width: 1440, height: 1000 },
     }),
     ownerB = await bContext.newPage();

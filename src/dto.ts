@@ -15,12 +15,19 @@ import {
   ArrayNotEmpty,
   ArrayUnique,
   IsBoolean,
+  ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
+import { WorkLocationDto } from "./work-location";
 export class LoginDto {
   @IsEmail() email!: string;
   @IsString() @MinLength(1) @MaxLength(128) password!: string;
 }
 export class EmployeeDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WorkLocationDto)
+  remoteWorkLocation?: WorkLocationDto;
   @IsString() @MinLength(1) @MaxLength(80) firstName!: string;
   @IsString() @MinLength(1) @MaxLength(80) lastName!: string;
   @IsEmail() email!: string;

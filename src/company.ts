@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Req,
@@ -15,6 +16,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
+import { WorkLocationDto, locationValue } from "./work-location";
 import { DateTime } from "luxon";
 import { hash } from "bcryptjs";
 import { Prisma } from "@prisma/client";
@@ -154,6 +156,38 @@ export class CompanyController {
       return org;
     });
   }
+  @Patch("company/attendance-location")
+  async attendanceLocation(
+    @Req() req: AuthRequest,
+    @Body() dto: WorkLocationDto,
+  ) {
+    permit(req.actor, ADMIN);
+    return this.db.system.$transaction(async (tx) => {
+      if (!locationValue(dto))
+        throw new BadRequestException(
+          "Provide a valid address and coordinates",
+        );
+      const location = {
+        address: dto.address.trim(),
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      };
+      const org = await tx.organization.update({
+        where: { id: companyId(req.actor) },
+        data: { attendanceLocation: location },
+      });
+      await tx.audit.create({
+        data: {
+          organizationId: org.id,
+          actorId: req.actor.id,
+          action: "company.attendance_location_updated",
+          entityId: org.id,
+          details: { radiusMetres: 100 },
+        },
+      });
+      return org;
+    });
+  }
   @Get("invitations")
   async invitations(
     @Req() req: AuthRequest,
@@ -177,7 +211,7 @@ export class CompanyController {
           CASE WHEN i.status='Pending' AND i."expiresAt"<(now() AT TIME ZONE 'UTC') THEN 'Expired' ELSE i.status END AS status
         FROM "Invitation" i WHERE i."organizationId"=${org}
         ORDER BY i."employeeId",i."createdAt" DESC,i.id DESC
-      ), filtered AS (SELECT * FROM latest WHERE true
+      ), filtered AS (SELECT * FROM latest WHERE status<>'Deleted'
         ${q.search ? Prisma.sql`AND email ILIKE ${"%" + q.search.slice(0, 100) + "%"}` : Prisma.empty}
         ${q.status ? Prisma.sql`AND status=${q.status}` : Prisma.empty}
       ), page AS (SELECT * FROM filtered ${after ? Prisma.sql`WHERE ("createdAt",id)<(${after[0]},${after[1]})` : Prisma.empty} ORDER BY "createdAt" DESC,id DESC LIMIT ${limit} OFFSET ${after ? 0 : skip}),
@@ -202,7 +236,7 @@ export class CompanyController {
   ) {
     permit(req.actor, ADMIN);
     const invitation = await this.db.invitation.findUniqueOrThrow({
-        where: { id },
+        where: { id, status: { not: "Deleted" } },
       }),
       org = companyId(req.actor),
       { page, limit, skip } = pagination(q);
@@ -234,6 +268,13 @@ export class CompanyController {
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   async invite(@Req() req: AuthRequest, @Body() dto: InviteDto) {
     permit(req.actor, ADMIN);
+    if (
+      dto.workArrangement === "Remote" &&
+      !locationValue(dto.remoteWorkLocation)
+    )
+      throw new BadRequestException(
+        "Provide the approved remote work location before inviting a remote employee",
+      );
     if (
       dto.role === "COMPANY_ADMIN" &&
       !["OWNER", "SUPER_ADMIN"].includes(req.actor.role)
@@ -371,7 +412,7 @@ export class CompanyController {
       );
     return this.db.$transaction(async (tx) => {
       const item = await tx.invitation.findUniqueOrThrow({ where: { id } });
-      if (item.status === "Accepted" || item.status === "Revoked")
+      if (!["Pending", "Expired"].includes(item.status))
         throw new BadRequestException(
           "Only pending or expired invitations can be resent",
         );
@@ -423,6 +464,32 @@ export class CompanyController {
           actorId: req.actor.id,
           action: "invitation.revoked",
           entityId: id,
+        },
+      });
+      return { ok: true };
+    });
+  }
+  @Delete("invitations/:id")
+  async deleteInvitation(@Req() req: AuthRequest, @Param("id") id: string) {
+    permit(req.actor, ADMIN);
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Invitation" WHERE id=${id} AND "organizationId"=${companyId(req.actor)} FOR UPDATE`;
+      const item = await tx.invitation.findUniqueOrThrow({ where: { id } });
+      if (item.status === "Deleted") return { ok: true };
+      if (item.status !== "Revoked")
+        throw new BadRequestException(
+          "Revoke the invitation before deleting it",
+        );
+      await tx.invitation.update({
+        where: { id },
+        data: { status: "Deleted" },
+      });
+      await tx.audit.create({
+        data: {
+          actorId: req.actor.id,
+          action: "invitation.deleted",
+          entityId: id,
+          details: { employeeId: item.employeeId, email: item.email },
         },
       });
       return { ok: true };

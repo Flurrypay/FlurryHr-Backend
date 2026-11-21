@@ -87,6 +87,8 @@ try {
   assert.equal(membership.role, "SUPER_ADMIN");
   assert.equal(membership.employeeId, eid);
   assert.equal(session.membershipId, membership.id);
+  assert.equal(employee.remoteWorkLocation, null);
+  assert.equal(attendance.locationVerification, null);
   assert.equal(attendance.snapshotSource, "Legacy inferred at migration");
   assert.ok(attendance.workDate);
   assert.equal(attendance.scheduleSnapshot.timezone, "Africa/Lagos");

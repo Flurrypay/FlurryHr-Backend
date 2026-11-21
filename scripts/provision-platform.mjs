@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { hash } from "bcryptjs";
 const db = new PrismaClient();
 try {
-  const email = process.env.PLATFORM_ADMIN_EMAIL?.toLowerCase(),
+  const email = process.env.PLATFORM_ADMIN_EMAIL?.trim().toLowerCase(),
     password = process.env.PLATFORM_ADMIN_PASSWORD;
   if (!email || !password || password.length < 16)
     throw new Error(
@@ -33,7 +33,9 @@ try {
       });
     });
   console.log(
-    "Dedicated platform administrator is provisioned. No company membership or private employee access was granted.",
+    existing
+      ? "This platform administrator already exists. Its password and account settings were not changed. Use its existing password or account recovery; editing PLATFORM_ADMIN_PASSWORD does not reset it."
+      : "Dedicated platform administrator is provisioned. No company membership or private employee access was granted.",
   );
 } catch (error) {
   console.error(error.message);

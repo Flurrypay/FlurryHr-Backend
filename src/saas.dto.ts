@@ -12,7 +12,10 @@ import {
   IsBoolean,
   IsDateString,
   Matches,
+  ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
+import { WorkLocationDto } from "./work-location";
 export class RegisterDto {
   @IsString() @MinLength(2) @MaxLength(120) fullName!: string;
   @IsEmail() email!: string;
@@ -49,6 +52,10 @@ export class CompanyDto {
   @IsOptional() @IsBoolean() emailNotifications?: boolean;
 }
 export class InviteDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WorkLocationDto)
+  remoteWorkLocation?: WorkLocationDto;
   @IsString() @MinLength(1) @MaxLength(80) firstName!: string;
   @IsString() @MinLength(1) @MaxLength(80) lastName!: string;
   @IsEmail() email!: string;

@@ -30,6 +30,11 @@ import {
 import { PEOPLE, ADMIN, arrivalStatus, currentShift } from "./domain";
 import { notifyEmployee, notifyReviewers } from "./notifications";
 import { CorrectionDto, DecisionDto } from "./dto";
+import {
+  AttendancePositionDto,
+  verifyPosition,
+  locationValue,
+} from "./work-location";
 @Controller("attendance")
 @UseGuards(AuthGuard)
 export class AttendanceController {
@@ -56,10 +61,31 @@ export class AttendanceController {
       limit: result.limit,
       nextCursor: result.nextCursor,
       serverTime: new Date().toISOString(),
+      locationPolicy: {
+        kind:
+          req.actor.employee?.workArrangement === "Remote"
+            ? "Remote"
+            : "Company",
+        configured: !!locationValue(
+          req.actor.employee?.workArrangement === "Remote"
+            ? req.actor.employee.remoteWorkLocation
+            : req.actor.organization?.attendanceLocation,
+        ),
+        address:
+          locationValue(
+            req.actor.employee?.workArrangement === "Remote"
+              ? req.actor.employee.remoteWorkLocation
+              : req.actor.organization?.attendanceLocation,
+          )?.address ?? null,
+        radiusMetres: 100,
+      },
     };
   }
   @Post("clock-in")
-  async clockIn(@Req() req: AuthRequest) {
+  async clockIn(
+    @Req() req: AuthRequest,
+    @Body() position: AttendancePositionDto,
+  ) {
     const employeeId = ownEmployee(req.actor);
     const key = req.header("Idempotency-Key");
     if (key && !/^[A-Za-z0-9_-]{16,100}$/.test(key))
@@ -84,6 +110,13 @@ export class AttendanceController {
       if (employee.status !== "Active")
         throw new ForbiddenException("Your employee record is inactive");
       const now = new Date();
+      const verification = await this.verifyLocation(
+        tx,
+        req.actor,
+        employee,
+        position,
+        now,
+      );
       const shift = currentShift(now, employee.schedule),
         date = shift.day.toISODate()!;
       if (employee.joinedAt.toISOString().slice(0, 10) > date)
@@ -114,6 +147,7 @@ export class AttendanceController {
           requestKey,
           clockIn: now,
           status,
+          locationVerification: { clockIn: verification },
         },
       });
       await tx.audit.create({
@@ -127,7 +161,11 @@ export class AttendanceController {
     });
   }
   @Post("clock-out/:id")
-  async clockOut(@Req() req: AuthRequest, @Param("id") id: string) {
+  async clockOut(
+    @Req() req: AuthRequest,
+    @Param("id") id: string,
+    @Body() position: AttendancePositionDto,
+  ) {
     const employeeId = ownEmployee(req.actor);
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Employee" WHERE id = ${employeeId} AND "organizationId" = ${companyId(req.actor)} FOR UPDATE`;
@@ -137,9 +175,28 @@ export class AttendanceController {
       if (!session)
         throw new BadRequestException("No matching attendance session");
       if (session.clockOut) return session;
+      const employee = await tx.employee.findUniqueOrThrow({
+        where: { id: employeeId },
+      });
+      if (employee.status !== "Active")
+        throw new ForbiddenException("Your employee record is inactive");
+      const now = new Date();
+      const verification = await this.verifyLocation(
+        tx,
+        req.actor,
+        employee,
+        position,
+        now,
+      );
       const updated = await tx.attendance.update({
         where: { id },
-        data: { clockOut: new Date() },
+        data: {
+          clockOut: now,
+          locationVerification: {
+            ...((session.locationVerification as Prisma.JsonObject) || {}),
+            clockOut: verification,
+          },
+        },
       });
       await tx.audit.create({
         data: {
@@ -150,6 +207,27 @@ export class AttendanceController {
       });
       return updated;
     });
+  }
+  private async verifyLocation(
+    tx: Prisma.TransactionClient,
+    actor: AuthRequest["actor"],
+    employee: { workArrangement: string; remoteWorkLocation: unknown },
+    position: AttendancePositionDto,
+    now: Date,
+  ) {
+    await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${companyId(actor)} FOR SHARE`;
+    const organization = await tx.organization.findUniqueOrThrow({
+      where: { id: companyId(actor) },
+    });
+    if (organization.status !== "Active")
+      throw new ForbiddenException("Your company workspace is unavailable");
+    const remote = employee.workArrangement === "Remote";
+    return verifyPosition(
+      position,
+      remote ? employee.remoteWorkLocation : organization.attendanceLocation,
+      remote ? "Remote" : "Company",
+      now.getTime(),
+    );
   }
   @Get("summary")
   async summary(@Req() req: AuthRequest, @Query() q: Record<string, string>) {
@@ -195,7 +273,12 @@ export class AttendanceController {
       this.db.attendance,
       {
         where,
-        include: { employee: { include: { department: true } } },
+        include: {
+          employee: {
+            omit: { remoteWorkLocation: !ADMIN.includes(req.actor.role) },
+            include: { department: true },
+          },
+        },
         orderBy: { clockIn: "desc" },
       },
       q,

@@ -79,6 +79,7 @@ model Holiday {
   @@unique([organizationId, date])
 }
 model Employee {
+  remoteWorkLocation Json?
   @@index([organizationId, firstName, id], map: "Employee_name_page_idx")
   organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
   organization Organization @relation(fields: [organizationId], references: [id])
@@ -120,6 +121,7 @@ model Employee {
   @@unique([organizationId, userId])
 }
 model Attendance {
+  locationVerification Json?
   workDate String?
   scheduleSnapshot Json?
   snapshotSource String?
@@ -303,6 +305,7 @@ model Audit {
 }
 
 model Organization {
+ attendanceLocation Json?
  id String @id @default(uuid())
  name String
  slug String @unique
