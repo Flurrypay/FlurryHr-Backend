@@ -2,6 +2,15 @@
 
 NestJS, PostgreSQL and Prisma. Run commands from this directory; no root npm package is required.
 
+`npm run build` and `npm run typecheck` regenerate Prisma Client from
+`prisma/schema.prisma` before compiling. Missing generated fields such as
+`scheduleSnapshot`, `mfaSecretEncrypted` or `mfaVerifiedAt` indicate a stale client
+or an outdated schema checkout. Update the backend including its `prisma/`
+directory, then run `npm run db:generate` and rebuild. Generation does not modify
+the database: apply reviewed migrations with `npm run db:migrate` during the
+release procedure before restarting the API. Build with development dependencies
+installed, since TypeScript and the Prisma CLI are build tools.
+
 ```sh
 npm install
 npm run setup

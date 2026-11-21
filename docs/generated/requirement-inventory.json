@@ -1,8 +1,8 @@
 {
   "description": "All original IDs retained. Section groups are parent-child navigation, duplicate descriptions remain independent acceptance entries. Source/test reconciliation is ongoing; statuses are never inferred from another row.",
   "statuses": {
-    "NOT_STARTED": 754,
-    "IN_PROGRESS": 15,
+    "NOT_STARTED": 753,
+    "IN_PROGRESS": 16,
     "IMPLEMENTED": 1,
     "VERIFIED": 95,
     "BLOCKED": 7
@@ -13279,14 +13279,14 @@
       "id": "SPEC-579",
       "section": "22. UI/UX FINAL QUALITY PASS",
       "requirement": "Correct navigation",
-      "status": "NOT_STARTED",
-      "existingImplementation": "Existing MVP; individual trace pending",
-      "gap": "Audit/complete against this requirement",
+      "status": "IN_PROGRESS",
+      "existingImplementation": "Workspace sidebar uses canonical paths and browser history; role-aware deep links; refresh preserved",
+      "gap": "Workspace verified; broader public/platform navigation acceptance remains open",
       "priority": "P1",
       "dependencies": "Relevant module",
-      "coverage": "Not yet mapped",
-      "evidence": "None for this requirement",
-      "files": "backend/src; frontend/src"
+      "coverage": "Isolated Chrome: all 21 sidebar pages and refresh; Back/Forward; global search; staff restricted-link fallback",
+      "evidence": "21 Nov user-reported navigation fix: mock API fixtures, no working-record mutations; help dismissal persists per membership; old directory contract produces clear error",
+      "files": "frontend/src/workspace-navigation.ts; Workspace.tsx; backend/scripts/workspace-ui-browser.mjs"
     },
     {
       "id": "SPEC-580",
