@@ -1,3 +1,6 @@
+import { FaceRetention } from "./face-retention";
+import { BiometricsController } from "./biometrics";
+import { FaceProvider } from "./face-provider";
 import "reflect-metadata";
 import "dotenv/config";
 import { MfaController } from "./mfa";
@@ -66,6 +69,7 @@ class Errors implements ExceptionFilter {
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 180 }])],
   controllers: [
+    BiometricsController,
     MfaController,
     AccountSecurityController,
     AuthController,
@@ -79,6 +83,8 @@ class Errors implements ExceptionFilter {
     HealthController,
   ],
   providers: [
+    FaceProvider,
+    FaceRetention,
     Db,
     AttendanceCalculation,
     AuthGuard,

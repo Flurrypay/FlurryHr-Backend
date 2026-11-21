@@ -1,3 +1,4 @@
+import { consumeAttendanceFace } from "./biometrics";
 import { paged, pagination } from "./pagination";
 import {
   Controller,
@@ -61,6 +62,8 @@ export class AttendanceController {
       limit: result.limit,
       nextCursor: result.nextCursor,
       serverTime: new Date().toISOString(),
+      biometricRequired:
+        req.actor.organization?.biometricAttendanceRequired ?? false,
       locationPolicy: {
         kind:
           req.actor.employee?.workArrangement === "Remote"
@@ -141,15 +144,29 @@ export class AttendanceController {
         : !employee.schedule.workingDays.includes(shift.day.weekday)
           ? "Rest Day"
           : arrivalStatus(now, employee.schedule);
+      const face = await consumeAttendanceFace(
+        tx,
+        req.actor,
+        "ClockIn",
+        position.faceCheckId,
+      );
       const session = await tx.attendance.create({
         data: {
           employeeId,
           requestKey,
           clockIn: now,
           status,
-          locationVerification: { clockIn: verification },
+          locationVerification: {
+            clockIn: verification,
+            ...(face ? { faceClockIn: face } : {}),
+          },
         },
       });
+      if (face)
+        await tx.faceCheck.update({
+          where: { id: face.checkId },
+          data: { attendanceId: session.id },
+        });
       await tx.audit.create({
         data: {
           actorId: req.actor.id,
@@ -188,6 +205,13 @@ export class AttendanceController {
         position,
         now,
       );
+      const face = await consumeAttendanceFace(
+        tx,
+        req.actor,
+        "ClockOut",
+        position.faceCheckId,
+        id,
+      );
       const updated = await tx.attendance.update({
         where: { id },
         data: {
@@ -195,6 +219,7 @@ export class AttendanceController {
           locationVerification: {
             ...((session.locationVerification as Prisma.JsonObject) || {}),
             clockOut: verification,
+            ...(face ? { faceClockOut: face } : {}),
           },
         },
       });

@@ -1,0 +1,25 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "rekognition:CreateFaceLivenessSession",
+        "rekognition:GetFaceLivenessSessionResults",
+        "rekognition:CompareFaces",
+        "rekognition:DetectFaces"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/FlurryHRFaceStream"
+    }
+  ]
+}

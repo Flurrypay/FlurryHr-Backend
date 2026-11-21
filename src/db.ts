@@ -33,6 +33,8 @@ export const tenantModels = new Set([
   "AssetHistory",
   "PerformanceReview",
   "Invitation",
+  "FaceEnrollment",
+  "FaceCheck",
 ]);
 @Injectable()
 export class Db implements OnModuleInit, OnModuleDestroy {
@@ -171,6 +173,12 @@ export class Db implements OnModuleInit, OnModuleDestroy {
   }
   get assetHistory() {
     return this.tenant.assetHistory;
+  }
+  get faceEnrollment() {
+    return this.tenant.faceEnrollment;
+  }
+  get faceCheck() {
+    return this.tenant.faceCheck;
   }
   get performanceReview() {
     return this.tenant.performanceReview;

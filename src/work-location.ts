@@ -7,6 +7,8 @@ import {
   MinLength,
   MaxLength,
   IsInt,
+  IsOptional,
+  IsUUID,
 } from "class-validator";
 export const ATTENDANCE_RADIUS_METRES = 100;
 export class WorkLocationDto {
@@ -16,6 +18,7 @@ export class WorkLocationDto {
   @IsNumber() @Min(-180) @Max(180) longitude!: number;
 }
 export class AttendancePositionDto {
+  @IsOptional() @IsUUID() faceCheckId?: string;
   @IsNumber() @Min(-90) @Max(90) latitude!: number;
   @IsNumber() @Min(-180) @Max(180) longitude!: number;
   @IsNumber() @Min(0) @Max(50) accuracy!: number;

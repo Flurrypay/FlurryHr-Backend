@@ -397,6 +397,30 @@ try {
     await db.attendance.count({ where: { employeeId: e.employee.id } }),
     0,
   );
+  await db.organization.update({
+    where: { id: a.organization.id },
+    data: { biometricAttendanceRequired: true },
+  });
+  await call("attendance/clock-in", {
+    cookie: e.cookie,
+    method: "POST",
+    data: gps(),
+    status: 403,
+  });
+  assert.equal(
+    await db.attendance.count({ where: { employeeId: e.employee.id } }),
+    0,
+  );
+  await db.organization.update({
+    where: { id: a.organization.id },
+    data: { biometricAttendanceRequired: false },
+  });
+  await call("biometrics/enrollments", { cookie: e.cookie, status: 403 });
+  await call("biometrics/checks", { cookie: e.cookie, status: 403 });
+  assert.equal(
+    (await call("biometrics/mine", { cookie: e.cookie })).body.required,
+    false,
+  );
   const sessions = await Promise.all(
     Array.from({ length: 5 }, () =>
       call("attendance/clock-in", {

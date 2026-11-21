@@ -470,6 +470,26 @@ export class HrController {
             completed: title === "Exit: Confirm access revocation",
           })),
         });
+      if (dto.status === "Inactive") {
+        await tx.faceEnrollment.updateMany({
+          where: { employeeId: id },
+          data: {
+            status: "Revoked",
+            referenceEncrypted: null,
+            version: { increment: 1 },
+            approvedBy: null,
+            approvedAt: null,
+          },
+        });
+        await tx.faceCheck.updateMany({
+          where: {
+            employeeId: id,
+            status: { in: ["Creating", "Started", "Verifying", "Verified"] },
+          },
+          data: { status: "Superseded" },
+        });
+        await this.audit(tx, req.actor, "biometric.offboarding_erasure", id);
+      }
       await this.audit(tx, req.actor, "employee.status", id, {
         status: dto.status,
         reason: dto.reason || null,

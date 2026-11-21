@@ -79,6 +79,8 @@ model Holiday {
   @@unique([organizationId, date])
 }
 model Employee {
+ faceEnrollments FaceEnrollment[]
+ faceChecks FaceCheck[]
   remoteWorkLocation Json?
   @@index([organizationId, firstName, id], map: "Employee_name_page_idx")
   organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
@@ -305,6 +307,9 @@ model Audit {
 }
 
 model Organization {
+ biometricAttendanceRequired Boolean @default(false)
+ faceEnrollments FaceEnrollment[]
+ faceChecks FaceCheck[]
  attendanceLocation Json?
  id String @id @default(uuid())
  name String
@@ -511,4 +516,47 @@ model MfaRecoveryCode {
   consumedAt DateTime?
   createdAt DateTime @default(now())
   @@index([userId,consumedAt])
+}
+
+model FaceEnrollment {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId], references:[id])
+ employeeId String
+ employee Employee @relation(fields:[employeeId,organizationId],references:[id,organizationId])
+ version Int @default(1)
+ status String @default("Pending")
+ referenceEncrypted String?
+ consentAt DateTime
+ consentVersion String
+ approvedBy String?
+ approvedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([organizationId,employeeId])
+ @@index([organizationId,status,createdAt,id])
+}
+model FaceCheck {
+ id String @id @default(uuid())
+ organizationId String @default(dbgenerated("current_setting('app.organization_id', true)"))
+ organization Organization @relation(fields:[organizationId],references:[id])
+ employeeId String
+ employee Employee @relation(fields:[employeeId,organizationId],references:[id,organizationId])
+ authSessionId String?
+ userId String
+ purpose String
+ targetAttendanceId String?
+ enrollmentVersion Int
+ providerSessionId String? @unique
+ status String @default("Creating")
+ liveness Float?
+ similarity Float?
+ failureCode String?
+ createdAt DateTime @default(now())
+ expiresAt DateTime
+ verifiedAt DateTime?
+ consumedAt DateTime?
+ attendanceId String?
+ @@index([organizationId,employeeId,createdAt,id])
+ @@index([organizationId,status,expiresAt])
 }

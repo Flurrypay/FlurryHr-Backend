@@ -87,6 +87,16 @@ try {
   assert.equal(membership.role, "SUPER_ADMIN");
   assert.equal(membership.employeeId, eid);
   assert.equal(session.membershipId, membership.id);
+  assert.equal(
+    (
+      await db.organization.findUniqueOrThrow({
+        where: { id: employee.organizationId },
+      })
+    ).biometricAttendanceRequired,
+    false,
+  );
+  assert.equal(await db.faceEnrollment.count(), 0);
+  assert.equal(await db.faceCheck.count(), 0);
   assert.equal(employee.remoteWorkLocation, null);
   assert.equal(attendance.locationVerification, null);
   assert.equal(attendance.snapshotSource, "Legacy inferred at migration");

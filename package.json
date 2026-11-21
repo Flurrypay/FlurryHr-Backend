@@ -36,9 +36,13 @@
     "test:mail-queue": "node scripts/mail-queue-test.mjs",
     "check:requirements": "node scripts/checklist-inventory.mjs",
     "test:list-plans": "node scripts/list-query-plans.mjs",
-    "mail:diagnose-reset": "node scripts/diagnose-password-reset.mjs"
+    "mail:diagnose-reset": "node scripts/diagnose-password-reset.mjs",
+    "test:biometrics": "node scripts/biometric-integration.mjs",
+    "test:biometrics-ui": "node scripts/biometric-ui-browser.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1175.0",
+    "@aws-sdk/client-sts": "^3.1175.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
