@@ -434,7 +434,11 @@ export class BiometricsController {
           ),
           result.image,
         );
-        if (!Number.isFinite(similarity) || similarity < threshold.similarity)
+        if (
+          similarity === null ||
+          !Number.isFinite(similarity) ||
+          similarity < threshold.similarity
+        )
           throw new BadRequestException(
             "Face comparison was not confirmed. Retry or ask HR for review",
           );
