@@ -799,6 +799,32 @@ try {
     data: { status: "Blocked" },
     status: 404,
   });
+  const originalOwner = await db.employee.findUniqueOrThrow({
+    where: { id: a.employee.id },
+  });
+  await call("profile", {
+    cookie: e.cookie,
+    method: "PATCH",
+    data: {
+      firstName: "  Updated  ",
+      lastName: "Profile",
+      phone: "08012345678",
+    },
+  });
+  const updatedProfile = (await call("auth/me", { cookie: e.cookie })).body;
+  assert.equal(updatedProfile.employee.firstName, "Updated");
+  assert.equal(updatedProfile.employee.lastName, "Profile");
+  assert.equal(updatedProfile.employee.phone, "08012345678");
+  assert.deepEqual(
+    await db.employee.findUniqueOrThrow({ where: { id: a.employee.id } }),
+    originalOwner,
+  );
+  await call("profile", {
+    cookie: e.cookie,
+    method: "PATCH",
+    data: { phone: "", role: "OWNER" },
+    status: 400,
+  });
   const mailBefore = await db.mailJob.count({
     where: { userId: e.id, organizationId: a.organization.id },
   });

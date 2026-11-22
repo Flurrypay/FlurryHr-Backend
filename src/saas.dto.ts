@@ -14,7 +14,7 @@ import {
   Matches,
   ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { WorkLocationDto } from "./work-location";
 export class RegisterDto {
   @IsString() @MinLength(2) @MaxLength(120) fullName!: string;
@@ -86,6 +86,21 @@ export class HolidayDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;
 }
 export class ProfileDto {
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  firstName?: string;
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MaxLength(80)
+  lastName?: string;
   @IsString() @MaxLength(30) phone!: string;
   @IsOptional() @IsBoolean() emailNotifications?: boolean;
 }

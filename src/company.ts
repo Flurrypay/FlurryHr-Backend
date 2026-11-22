@@ -609,7 +609,11 @@ export class CompanyController {
     return this.db.$transaction(async (tx) => {
       const employee = await tx.employee.update({
         where: { id: req.actor.employee!.id },
-        data: { phone: dto.phone },
+        data: {
+          phone: dto.phone,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+        },
       });
       if (dto.emailNotifications !== undefined)
         await tx.membership.update({
