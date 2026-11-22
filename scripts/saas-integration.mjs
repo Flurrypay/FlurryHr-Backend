@@ -277,6 +277,45 @@ try {
     1,
   );
   const inviteA = await invite(a, "First");
+  assert.equal(
+    (
+      await call(`directory-options/employees?id=${a.employee.id}`, {
+        cookie: a.cookie,
+      })
+    ).body.total,
+    0,
+  );
+  assert.equal(
+    (
+      await call(`directory-options/managers?id=${a.employee.id}`, {
+        cookie: a.cookie,
+      })
+    ).body.total,
+    1,
+  );
+  assert.equal(
+    (
+      await call(`employees?search=${encodeURIComponent(inviteA.dto.email)}`, {
+        cookie: a.cookie,
+      })
+    ).body.total,
+    0,
+  );
+  assert.equal(
+    (
+      await call(`employees?search=${encodeURIComponent(a.email)}`, {
+        cookie: a.cookie,
+      })
+    ).body.total,
+    0,
+  );
+  await call("attendance/clock-in", {
+    cookie: a.cookie,
+    method: "POST",
+    data: gps(),
+    status: 403,
+  });
+
   await call("invitations/accept", {
     cookie: b.cookie,
     method: "POST",
@@ -457,7 +496,7 @@ try {
   await call(`attendance/clock-out/${session.id}`, {
     cookie: b.cookie,
     method: "POST",
-    status: 400,
+    status: 403,
     data: gps(),
   });
   const closed = (
@@ -574,6 +613,7 @@ try {
   ).body;
   assert.ok(summary.items.some((row) => row.employee.id === e.employee.id));
   assert.ok(summary.items.every((row) => row.employee.id !== b.employee.id));
+  assert.ok(summary.items.every((row) => row.employee.id !== a.employee.id));
   const correction = (
     await call("attendance/corrections", {
       cookie: e.cookie,
@@ -599,6 +639,18 @@ try {
     data: { status: "Approved", comment: "Verified by manager" },
   });
   const leaveType = a.options.leaveTypes[0].id;
+  const missingBalance = await call("leave", {
+    cookie: e.cookie,
+    method: "POST",
+    status: 400,
+    data: {
+      leaveTypeId: leaveType,
+      startDate: "2026-12-07",
+      endDate: "2026-12-08",
+      reason: "No entitlement allocated yet",
+    },
+  });
+  assert.match(missingBalance.body.message, /needs 2 working day/);
   await call("leave/allocations", {
     cookie: a.cookie,
     method: "POST",
@@ -609,6 +661,26 @@ try {
       year: 2026,
       days: 10,
     },
+  });
+  const allocationList = (
+    await call(`leave/allocations?year=2026&employeeId=${e.employee.id}`, {
+      cookie: a.cookie,
+    })
+  ).body;
+  assert.equal(allocationList.items.length, 1);
+  assert.equal(allocationList.items[0].days, 10);
+  assert.equal(allocationList.items[0].employee.id, e.employee.id);
+  await call("leave/allocations", { cookie: e.cookie, status: 403 });
+  await call("leave", {
+    cookie: a.cookie,
+    method: "POST",
+    data: {
+      leaveTypeId: leaveType,
+      startDate: "2026-12-07",
+      endDate: "2026-12-08",
+      reason: "Admin account must not request staff leave",
+    },
+    status: 403,
   });
   const leave = (
     await call("leave", {
@@ -634,6 +706,20 @@ try {
     method: "PATCH",
     data: { status: "Approved", comment: "Team coverage confirmed" },
   });
+  assert.ok(
+    (
+      await call("leave?status=Approved&includeBalances=false", {
+        cookie: a.cookie,
+      })
+    ).body.requests.some((r) => r.id === leave.id && r.status === "Approved"),
+  );
+  assert.ok(
+    (
+      await call("leave?status=Approved&includeBalances=false", {
+        cookie: e.cookie,
+      })
+    ).body.requests.some((r) => r.id === leave.id && r.status === "Approved"),
+  );
   await call(`leave/${leave.id}/decision`, {
     cookie: a.cookie,
     method: "PATCH",
@@ -911,7 +997,7 @@ try {
   );
   assert.ok(
     (
-      await call(`directory-options/employees?search=${fullNameQuery}`, {
+      await call(`directory-options/managers?search=${fullNameQuery}`, {
         cookie: a.cookie,
       })
     ).body.items.some((item) => item.id === ownerEmployee.id),
@@ -921,7 +1007,7 @@ try {
       await call(`directory-options?search=${fullNameQuery}`, {
         cookie: a.cookie,
       })
-    ).body.employees.some((item) => item.id === ownerEmployee.id),
+    ).body.employees.every((item) => item.id !== ownerEmployee.id),
   );
   const employeeLookup = (
     await call("directory-options/employees?search=", { cookie: a.cookie })

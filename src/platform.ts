@@ -1,3 +1,4 @@
+import { staffRosterWhere } from "./domain";
 import { paged } from "./pagination";
 import {
   Controller,
@@ -95,7 +96,7 @@ export class PlatformController {
           _count: {
             select: {
               memberships: true,
-              employees: { where: { status: { not: "Removed" } } },
+              employees: { where: staffRosterWhere },
               attendance: true,
               invitations: true,
             },

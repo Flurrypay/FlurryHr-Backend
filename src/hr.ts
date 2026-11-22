@@ -1,3 +1,4 @@
+import { staffRosterWhere } from "./domain";
 import { paged, pagination } from "./pagination";
 import {
   Controller,
@@ -105,10 +106,14 @@ export class HrController {
                 searchFields: ["firstName", "lastName", "email"],
                 wordSearch: true,
                 filterFields: ["status", "departmentId"],
-                where:
-                  req.actor.role === "FINANCE"
-                    ? { status: "Active" }
-                    : this.scope(req.actor),
+                where: {
+                  AND: [
+                    req.actor.role === "FINANCE"
+                      ? { status: "Active" }
+                      : this.scope(req.actor),
+                    staffRosterWhere,
+                  ],
+                },
                 select: { id: true, firstName: true, lastName: true },
                 orderBy: { firstName: "asc" },
               },
@@ -162,7 +167,7 @@ export class HrController {
     @Param("kind") kind: string,
     @Query() q: Record<string, string>,
   ) {
-    if (kind === "employees") {
+    if (kind === "employees" || kind === "managers") {
       permit(req.actor, [...PEOPLE, ...FINANCE]);
       return paged(
         this.db.employee,
@@ -170,10 +175,14 @@ export class HrController {
           searchFields: ["firstName", "lastName", "email"],
           wordSearch: true,
           filterFields: ["id"],
-          where:
-            req.actor.role === "FINANCE"
-              ? { status: "Active" }
-              : this.scope(req.actor),
+          where: {
+            AND: [
+              req.actor.role === "FINANCE"
+                ? { status: "Active" }
+                : this.scope(req.actor),
+              ...(kind === "employees" ? [staffRosterWhere] : []),
+            ],
+          },
           select: { id: true, firstName: true, lastName: true },
           orderBy: { firstName: "asc" },
         },
@@ -237,6 +246,7 @@ export class HrController {
         where: {
           AND: [
             this.scope(req.actor),
+            staffRosterWhere,
             ...(q.department ? [{ departmentId: q.department }] : []),
           ],
         },
@@ -537,7 +547,7 @@ export class HrController {
         filterFields: [],
         include: {
           _count: {
-            select: { employees: { where: { status: { not: "Removed" } } } },
+            select: { employees: { where: staffRosterWhere } },
           },
         },
         orderBy: { name: "asc" },
@@ -684,11 +694,48 @@ export class HrController {
       })),
     };
   }
+  @Get("leave/allocations")
+  async allocations(
+    @Req() req: AuthRequest,
+    @Query() q: Record<string, string>,
+  ) {
+    permit(req.actor, ADMIN);
+    if (
+      q.year &&
+      (!/^\d{4}$/.test(q.year) ||
+        Number(q.year) < 2000 ||
+        Number(q.year) > 2200)
+    )
+      throw new BadRequestException("Choose a valid leave year");
+    return paged(
+      this.db.leaveAllocation,
+      {
+        where: {
+          employee: staffRosterWhere,
+          ...(q.year ? { year: Number(q.year) } : {}),
+        },
+        filterFields: ["employeeId", "leaveTypeId"],
+        include: {
+          employee: { select: { id: true, firstName: true, lastName: true } },
+          leaveType: true,
+        },
+        orderBy: { year: "desc" },
+      },
+      q,
+    );
+  }
   @Post("leave/allocations")
   async allocate(@Req() req: AuthRequest, @Body() dto: D.AllocationDto) {
     permit(req.actor, ADMIN);
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Employee" WHERE id = ${dto.employeeId} AND "organizationId" = ${companyId(req.actor)} FOR UPDATE`;
+      const recipient = await tx.employee.findFirst({
+        where: { AND: [{ id: dto.employeeId }, staffRosterWhere] },
+      });
+      if (!recipient)
+        throw new BadRequestException(
+          "Choose an employee who has joined the company; admin accounts and pending invitations do not receive staff leave allocations",
+        );
       const used = await tx.leaveRequest.aggregate({
         where: {
           employeeId: dto.employeeId,
@@ -721,6 +768,8 @@ export class HrController {
   }
   @Post("leave")
   async requestLeave(@Req() req: AuthRequest, @Body() dto: D.LeaveDto) {
+    if (ADMIN.includes(req.actor.role))
+      throw new ForbiddenException("Admin accounts do not request staff leave");
     const employeeId = ownEmployee(req.actor);
     if (dto.startDate.slice(0, 4) !== dto.endDate.slice(0, 4))
       throw new BadRequestException(
@@ -787,7 +836,7 @@ export class HrController {
       });
       if (!allocation || allocation.days - (used._sum.days || 0) < days)
         throw new BadRequestException(
-          "Insufficient allocated leave. Contact HR to review your balance.",
+          `This request needs ${days} working day(s), but only ${Math.max(0, (allocation?.days || 0) - (used._sum.days || 0))} allocated day(s) remain for ${year}. Ask HR to allocate this leave type for that year.`,
         );
       const leave = await tx.leaveRequest.create({
         data: { ...dto, employeeId, days },

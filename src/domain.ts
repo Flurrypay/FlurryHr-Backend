@@ -1,5 +1,13 @@
+import type { Prisma, Role } from "@prisma/client";
 import { DateTime } from "luxon";
 export const ADMIN = ["SUPER_ADMIN", "OWNER", "COMPANY_ADMIN", "HR_ADMIN"];
+export const staffRosterWhere: Prisma.EmployeeWhereInput = {
+  status: { notIn: ["Invited", "Not invited", "Removed"] },
+  OR: [
+    { membership: { is: null } },
+    { membership: { is: { role: { notIn: ADMIN as Role[] } } } },
+  ],
+};
 export const PEOPLE = [...ADMIN, "MANAGER"];
 export const FINANCE = [...ADMIN, "FINANCE"];
 export function workedMinutes(start: Date, end: Date): number {

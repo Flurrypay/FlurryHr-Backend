@@ -16,7 +16,7 @@ import { AttendanceCalculation } from "./attendance-calculation";
 import { attendanceStatuses } from "./attendance-calculation";
 import { pagination } from "./pagination";
 import { AuthGuard, AuthRequest, ownEmployee, permit } from "./auth";
-import { ADMIN, PEOPLE, FINANCE } from "./domain";
+import { ADMIN, PEOPLE, FINANCE, staffRosterWhere } from "./domain";
 import { Prisma } from "@prisma/client";
 @Controller()
 @UseGuards(AuthGuard)
@@ -39,7 +39,7 @@ export class DashboardController {
           }
         : { id: ownEmployee(actor) };
     const scope: Prisma.EmployeeWhereInput = {
-      AND: [roleScope, { status: { not: "Removed" } }],
+      AND: [roleScope, staffRosterWhere],
     };
     const [employeeTotal, employeeActive, recentHires] = await Promise.all([
       this.db.employee.count({ where: scope }),

@@ -97,7 +97,7 @@ export class AttendanceCalculation {
             GROUP BY a."employeeId",a."workDate"
         ) a ON a."employeeId"=e.id AND a."workDate"=${day}
         WHERE e."organizationId"=${org} AND e."joinedAt"<=(${day})::date
-          AND (e.status='Active' OR a.sessions>0) ${scope}
+          AND (e.status='Active' OR a.sessions>0) AND NOT EXISTS (SELECT 1 FROM "Membership" admin_member WHERE admin_member."employeeId"=e.id AND admin_member."organizationId"=e."organizationId" AND admin_member.role IN ('OWNER','COMPANY_ADMIN','SUPER_ADMIN','HR_ADMIN')) ${scope}
           ${query.department ? Prisma.sql`AND e."departmentId"=${query.department}` : Prisma.empty}
           ${query.employee ? Prisma.sql`AND e.id=${query.employee}` : Prisma.empty}
           ${query.search?.trim() ? Prisma.sql`AND concat_ws(' ',e."firstName",e."lastName",e.email) ILIKE ${"%" + query.search.trim() + "%"}` : Prisma.empty}

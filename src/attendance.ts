@@ -1,3 +1,4 @@
+import { staffRosterWhere } from "./domain";
 import { consumeAttendanceFace } from "./biometrics";
 import { paged, pagination } from "./pagination";
 import {
@@ -89,6 +90,8 @@ export class AttendanceController {
     @Req() req: AuthRequest,
     @Body() position: AttendancePositionDto,
   ) {
+    if (ADMIN.includes(req.actor.role))
+      throw new ForbiddenException("Admin accounts do not clock attendance");
     const employeeId = ownEmployee(req.actor);
     const key = req.header("Idempotency-Key");
     if (key && !/^[A-Za-z0-9_-]{16,100}$/.test(key))
@@ -183,6 +186,8 @@ export class AttendanceController {
     @Param("id") id: string,
     @Body() position: AttendancePositionDto,
   ) {
+    if (ADMIN.includes(req.actor.role))
+      throw new ForbiddenException("Admin accounts do not clock attendance");
     const employeeId = ownEmployee(req.actor);
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Employee" WHERE id = ${employeeId} AND "organizationId" = ${companyId(req.actor)} FOR UPDATE`;
@@ -270,6 +275,7 @@ export class AttendanceController {
     )
       throw new BadRequestException("Choose a valid YYYY-MM-DD date");
     const employeeWhere: Prisma.EmployeeWhereInput = {
+      AND: [staffRosterWhere],
       ...(req.actor.role === "MANAGER"
         ? {
             OR: [

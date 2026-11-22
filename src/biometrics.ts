@@ -233,6 +233,8 @@ export class BiometricsController {
   @Post("sessions")
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async start(@Req() req: AuthRequest, @Body() dto: StartFaceDto) {
+    if (dto.purpose !== "Enrollment" && ADMIN.includes(req.actor.role))
+      throw new ForbiddenException("Admin accounts do not clock attendance");
     if (!faceConfigured())
       throw new ServiceUnavailableException(
         "AWS face verification is not configured; contact HR",

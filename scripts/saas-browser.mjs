@@ -602,7 +602,7 @@ try {
   });
   await nav(owner, "Leave Management");
   await owner
-    .getByRole("button", { name: "Allocate leave", exact: true })
+    .getByRole("button", { name: "Allocate leave balance", exact: true })
     .click();
   let dialog = owner.getByRole("dialog");
   await chooseOption(dialog.getByLabel("Employee", { exact: true }), record.id);
