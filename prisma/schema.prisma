@@ -395,6 +395,7 @@ model Invitation {
  @@index([organizationId,status])
 }
 model MailJob {
+ providerRequestId String?
   @@index([organizationId, referenceId, createdAt, id])
  id String @id @default(uuid())
  referenceId String?

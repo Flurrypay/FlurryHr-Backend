@@ -1,3 +1,4 @@
+import { zohoConfigurationError } from "./zoho-mail";
 import {
   Controller,
   Get,
@@ -147,7 +148,14 @@ export class CompanyController {
   @Get("mail/configuration")
   mailConfiguration(@Req() req: AuthRequest) {
     permit(req.actor, ADMIN);
-    return { configured: mailConfigured() };
+    return {
+      configured: mailConfigured(),
+      transport: "zoho",
+      configurationError:
+        process.env.NODE_ENV === "test" && process.env.MAIL_TRANSPORT === "file"
+          ? null
+          : zohoConfigurationError(),
+    };
   }
   @Get("company") company(@Req() req: AuthRequest) {
     return req.actor.organization;
@@ -272,7 +280,7 @@ export class CompanyController {
     const [result] = await this.db.system.$queryRaw<
       { items: unknown[]; total: number }[]
     >(Prisma.sql`
-      WITH history AS (SELECT m.id,m.status,m.attempts,m."lastError",to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",to_char(m."acceptedAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "acceptedAt"
+      WITH history AS (SELECT m.id,m.status,m.attempts,m."providerRequestId",m."lastError",to_char(m."createdAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",to_char(m."acceptedAt",'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "acceptedAt"
         FROM "MailJob" m JOIN "Invitation" i ON i.id=m."referenceId" AND i."organizationId"=${org}
         WHERE m."organizationId"=${org} AND i."employeeId"=${invitation.employeeId}),
       page AS (SELECT * FROM history ${after ? Prisma.sql`WHERE ("createdAt",id)<(${after[0]},${after[1]})` : Prisma.empty} ORDER BY "createdAt" DESC,id DESC LIMIT ${limit} OFFSET ${after ? 0 : skip})

@@ -40,7 +40,9 @@
     "test:biometrics": "node scripts/biometric-integration.mjs",
     "test:biometrics-ui": "node scripts/biometric-ui-browser.mjs",
     "test:staff-leave-ui": "node scripts/staff-leave-ui-browser.mjs",
-    "test:profile-ui": "node scripts/profile-ui-browser.mjs"
+    "test:profile-ui": "node scripts/profile-ui-browser.mjs",
+    "mail:diagnose-invitations": "node scripts/diagnose-invitations.mjs",
+    "test:department-goal-ui": "node scripts/department-goal-ui-browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1175.0",

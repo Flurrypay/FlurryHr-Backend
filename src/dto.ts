@@ -17,7 +17,7 @@ import {
   IsBoolean,
   ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { WorkLocationDto } from "./work-location";
 export class LoginDto {
   @IsEmail() email!: string;
@@ -52,7 +52,13 @@ export class StatusDto {
   @IsOptional() @IsDateString() exitDate?: string;
 }
 export class NameDto {
-  @IsString() @MinLength(2) @MaxLength(100) name!: string;
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name!: string;
 }
 export class ScheduleDto {
   @IsString() @MinLength(2) @MaxLength(100) name!: string;

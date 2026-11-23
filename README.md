@@ -113,3 +113,36 @@ Verification commands: `npm test`, `npm run test:biometrics`, `npm run test:biom
 Owners/company admins/HR admins do not clock attendance and are excluded from the employee roster and staff totals. Pending invitations belong to Invitations; joined staff belong to Employees. Reporting-manager lookup is separate so an administrator can still supervise staff.
 
 Leave Management → **Allocate leave balance** sets an entitlement for a specific employee, leave type and calendar year. Admins can see those records under **Leave allocations** using the year chooser. Allocation does not grant absence on particular dates: the staff member submits a dated request, then HR/manager approves it in **Leave requests**. Requests reserve days from the correct type/year and fail with requested/available working-day counts when insufficient. A type named Unpaid leave does not automatically have unlimited entitlement. First/last day fields use native date inputs with explicit calendar buttons. Admin accounts cannot submit personal staff leave requests.
+
+## Invitation delivery diagnostics (23 November 2026)
+
+Use `MAIL_TRANSPORT=zoho` for the existing Zoho CPaaS/ZeptoMail API integration.
+SMTP hosts and SMTP credentials are not used. Unsupported transport values and
+multiline API keys are now reported as configuration problems. Keep the Send
+Mail API key on one line in the server environment and restart the backend after
+changing settings; never paste credentials into support logs.
+
+Apply migration `202611230001_mail_provider_reference` before starting this
+version (`npm run db:migrate`). New accepted sends retain Zoho's request ID and
+show it in invitation sending history. Older messages cannot be backfilled.
+Run `npm run mail:diagnose-invitations -- employee@example.com` on the server
+for a read-only report of statuses, job references and provider references. The
+command never selects email bodies, credentials or invitation tokens.
+
+`Accepted` / `Sent to provider` confirms only API acceptance. In Zoho's processed
+email logs, search the request ID, recipient, or client reference (mail job ID)
+and inspect the delivery/bounce/suppression reason. A Send Mail API key does not
+provide the OAuth log-reading scope, so this application cannot independently
+retrieve delivery outcomes with the three existing configuration variables.
+Confirm domain DKIM and return-path verification in Zoho and recipient mailbox
+availability. No recipient delivery claim should be made from API acceptance.
+
+Department admins can rename and delete departments. Deletion requires all
+employee records, including admin/former staff records, to be reassigned first;
+it never silently deletes employees. Goal and assessment text scroll within
+bounded cells. Location capture now waits up to 25 seconds for an accurate fresh
+reading and reports approximate accuracy on failure. The 100-metre attendance
+boundary and maximum 50-metre GPS uncertainty are unchanged. Approved coordinates
+can be entered manually during company/remote-location setup, using a verified
+point; browser/device permission or coarse hardware readings cannot be corrected
+by the web application alone.

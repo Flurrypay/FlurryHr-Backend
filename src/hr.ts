@@ -5,6 +5,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -562,6 +563,45 @@ export class HrController {
       const item = await tx.department.create({ data: dto });
       await this.audit(tx, req.actor, "department.created", item.id);
       return item;
+    });
+  }
+  @Patch("departments/:id")
+  async editDepartment(
+    @Req() req: AuthRequest,
+    @Param("id") id: string,
+    @Body() dto: D.NameDto,
+  ) {
+    permit(req.actor, ADMIN);
+    return this.db.$transaction(async (tx) => {
+      const item = await tx.department.findUnique({ where: { id } });
+      if (!item) throw new NotFoundException("Department not found");
+      const updated = await tx.department.update({
+        where: { id },
+        data: { name: dto.name.trim() },
+      });
+      await this.audit(tx, req.actor, "department.updated", id, {
+        previousName: item.name,
+        name: updated.name,
+      });
+      return updated;
+    });
+  }
+  @Delete("departments/:id")
+  async deleteDepartment(@Req() req: AuthRequest, @Param("id") id: string) {
+    permit(req.actor, ADMIN);
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Department" WHERE id = ${id} AND "organizationId" = ${companyId(req.actor)} FOR UPDATE`;
+      const item = await tx.department.findUnique({ where: { id } });
+      if (!item) throw new NotFoundException("Department not found");
+      if (await tx.employee.count({ where: { departmentId: id } }))
+        throw new BadRequestException(
+          "Move all employee records, including administrators and former staff, to another department before deleting this department.",
+        );
+      await tx.department.delete({ where: { id } });
+      await this.audit(tx, req.actor, "department.deleted", id, {
+        name: item.name,
+      });
+      return { ok: true };
     });
   }
   @Get("schedules")

@@ -237,6 +237,49 @@ try {
     })
   ).body;
   assert.notEqual(deptA.organizationId, deptB.organizationId);
+  const disposable = (
+    await call("departments", {
+      cookie: a.cookie,
+      method: "POST",
+      status: 201,
+      data: { name: "Temporary department" },
+    })
+  ).body;
+  await call(`departments/${disposable.id}`, {
+    cookie: b.cookie,
+    method: "PATCH",
+    status: 404,
+    data: { name: "Wrong company" },
+  });
+  await call(`departments/${disposable.id}`, {
+    cookie: a.cookie,
+    method: "PATCH",
+    data: { name: "Renamed department" },
+  });
+  assert.equal(
+    (await db.department.findUniqueOrThrow({ where: { id: disposable.id } }))
+      .name,
+    "Renamed department",
+  );
+  await call(`departments/${disposable.id}`, {
+    cookie: b.cookie,
+    method: "DELETE",
+    status: 404,
+  });
+  await call(`departments/${disposable.id}`, {
+    cookie: a.cookie,
+    method: "DELETE",
+  });
+  assert.equal(
+    await db.department.findUnique({ where: { id: disposable.id } }),
+    null,
+  );
+  await call(`departments/${a.employee.departmentId}`, {
+    cookie: a.cookie,
+    method: "DELETE",
+    status: 400,
+  });
+
   const recordedEmployee = (
     await call("employees", {
       cookie: a.cookie,
@@ -798,6 +841,17 @@ try {
     method: "PATCH",
     data: { status: "Blocked" },
     status: 404,
+  });
+  await call(`departments/${deptA.id}`, {
+    cookie: e.cookie,
+    method: "PATCH",
+    status: 403,
+    data: { name: "Forbidden" },
+  });
+  await call(`departments/${deptA.id}`, {
+    cookie: e.cookie,
+    method: "DELETE",
+    status: 403,
   });
   const originalOwner = await db.employee.findUniqueOrThrow({
     where: { id: a.employee.id },

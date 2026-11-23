@@ -111,6 +111,7 @@ export class MailWorker implements OnModuleInit, OnModuleDestroy {
             });
             continue;
           }
+          let providerRequestId: string | null = null;
           if (process.env.MAIL_TRANSPORT === "file") {
             if (process.env.NODE_ENV !== "test")
               throw new Error("TEST_TRANSPORT_DISABLED");
@@ -129,13 +130,14 @@ export class MailWorker implements OnModuleInit, OnModuleDestroy {
               { mode: 0o600 },
             );
           } else {
-            await sendZohoMail({ ...job, body: plaintext });
+            providerRequestId = await sendZohoMail({ ...job, body: plaintext });
           }
           // Provider acceptance is not a guarantee of inbox delivery.
           await this.db.system.mailJob.update({
             where: { id },
             data: {
               status: "Accepted",
+              providerRequestId,
               acceptedAt: new Date(),
               attempts: { increment: 1 },
               lastError: null,

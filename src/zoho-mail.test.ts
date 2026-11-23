@@ -10,6 +10,7 @@ const message = {
 async function configured(run: () => Promise<void>) {
   const original = { ...process.env };
   Object.assign(process.env, {
+    MAIL_TRANSPORT: "zoho",
     ZOHO_EMAIL_API_URL: "https://api.zeptomail.com/v1.1/email",
     ZOHO_EMAIL_API_KEY: "Zoho-enczapikey test-key",
     ZOHO_EMAIL_FROM: "hr@example.test",
@@ -23,7 +24,7 @@ async function configured(run: () => Promise<void>) {
 test("Zoho sends authenticated payload and recognizes provider acceptance", async () => {
   await configured(async () => {
     assert.equal(zohoConfigured(), true);
-    await sendZohoMail(message, async (url, options) => {
+    const reference = await sendZohoMail(message, async (url, options) => {
       assert.equal(String(url), process.env.ZOHO_EMAIL_API_URL);
       assert.equal(
         (options!.headers as Record<string, string>).Authorization,
@@ -36,8 +37,12 @@ test("Zoho sends authenticated payload and recognizes provider acceptance", asyn
       assert.equal(body.textbody, message.body);
       assert.equal(body.client_reference, message.id);
       assert.equal(body.track_clicks, false);
-      return Response.json({ data: [{ code: "EM_104" }] });
+      return Response.json({
+        data: [{ code: "EM_104" }],
+        request_id: "provider-reference",
+      });
     });
+    assert.equal(reference, "provider-reference");
   });
 });
 test("Zoho rejection never becomes accepted delivery", async () => {
@@ -71,7 +76,17 @@ test("Zoho credentials are never sent to a non-HTTPS endpoint", async () => {
       sendZohoMail(message, async () => {
         throw new Error("Unexpected request");
       }),
-      /ZOHO_CONFIGURATION_ERROR/,
+      /MAIL_NOT_CONFIGURED|ZOHO_CONFIGURATION_ERROR/,
     );
+  });
+});
+
+test("unsupported SMTP transport and multiline API keys cannot report configured", async () => {
+  await configured(async () => {
+    process.env.MAIL_TRANSPORT = "smtp";
+    assert.equal(zohoConfigured(), false);
+    process.env.MAIL_TRANSPORT = "zoho";
+    process.env.ZOHO_EMAIL_API_KEY = "first-line\nsecond-line";
+    assert.equal(zohoConfigured(), false);
   });
 });

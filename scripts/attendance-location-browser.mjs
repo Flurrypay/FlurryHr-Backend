@@ -159,6 +159,19 @@ try {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "geolocation", {
       value: {
+        clearWatch() {},
+        watchPosition(success) {
+          if (localStorage.getItem("gps-mode") === "improving")
+            setTimeout(
+              () =>
+                success({
+                  coords: { latitude: 6.5244, longitude: 3.3792, accuracy: 5 },
+                  timestamp: Date.now(),
+                }),
+              50,
+            );
+          return 1;
+        },
         getCurrentPosition(success, error) {
           const mode = localStorage.getItem("gps-mode");
           if (mode === "denied") return error({ code: 1 });
@@ -166,7 +179,7 @@ try {
             coords: {
               latitude: 6.5244,
               longitude: 3.3792,
-              accuracy: mode === "inaccurate" ? 100 : 5,
+              accuracy: ["inaccurate", "improving"].includes(mode) ? 100 : 5,
             },
             timestamp: Date.now(),
           });
@@ -183,16 +196,18 @@ try {
   await page.evaluate(() => localStorage.setItem("gps-mode", "denied"));
   await page.getByRole("button", { name: "Clock In", exact: true }).click();
   await expect(
-    page.getByText("Allow location access in your browser to mark attendance."),
+    page.getByText(
+      "Allow location access for this site in your browser and device settings, then retry.",
+    ),
   ).toBeVisible();
   assert.equal(mutations.length, 0);
   await page.evaluate(() => localStorage.setItem("gps-mode", "inaccurate"));
   await page.getByRole("button", { name: "Clock In", exact: true }).click();
   await expect(
-    page.getByText(/Your location is not precise enough/),
-  ).toBeVisible();
+    page.getByText(/Location accuracy is about 100 metres/),
+  ).toBeVisible({ timeout: 30000 });
   assert.equal(mutations.length, 0);
-  await page.evaluate(() => localStorage.removeItem("gps-mode"));
+  await page.evaluate(() => localStorage.setItem("gps-mode", "improving"));
   await page.getByRole("button", { name: "Clock In", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Clock Out", exact: true }),
