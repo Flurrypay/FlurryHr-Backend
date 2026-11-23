@@ -42,7 +42,8 @@
     "test:staff-leave-ui": "node scripts/staff-leave-ui-browser.mjs",
     "test:profile-ui": "node scripts/profile-ui-browser.mjs",
     "mail:diagnose-invitations": "node scripts/diagnose-invitations.mjs",
-    "test:department-goal-ui": "node scripts/department-goal-ui-browser.mjs"
+    "test:department-goal-ui": "node scripts/department-goal-ui-browser.mjs",
+    "test:location-map-ui": "node scripts/location-map-ui-browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1175.0",
