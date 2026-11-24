@@ -43,7 +43,8 @@
     "test:profile-ui": "node scripts/profile-ui-browser.mjs",
     "mail:diagnose-invitations": "node scripts/diagnose-invitations.mjs",
     "test:department-goal-ui": "node scripts/department-goal-ui-browser.mjs",
-    "test:location-map-ui": "node scripts/location-map-ui-browser.mjs"
+    "test:location-map-ui": "node scripts/location-map-ui-browser.mjs",
+    "test:invitation-success-ui": "node scripts/invitation-success-ui-browser.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1175.0",

@@ -145,9 +145,7 @@ try {
     scroll: el.scrollHeight,
   }));
   assert.ok(
-    bounds.height <= 180 &&
-      bounds.width <= 350 &&
-      bounds.scroll > bounds.height,
+    bounds.height <= 80 && bounds.width <= 350 && bounds.scroll > bounds.height,
   );
   assert.deepEqual(errors, []);
   console.log(
